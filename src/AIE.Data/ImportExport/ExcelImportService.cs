@@ -179,6 +179,19 @@ namespace AIE.Data.ImportExport
             using (var wb = new XLWorkbook(filePath))
             {
                 var ws = wb.Worksheet(1);
+
+                // Có 2 kiểu file mẫu nhân công:
+                //  - File mẫu "3_GiaNhanCong.xlsx": MaNC, TenNC, Nhom, DonVi, DonGia, GhiChu (6 cột)
+                //  - File xuất đơn giá:           MaNC, Tên,  DonVi, DonGia, GhiChu        (5 cột)
+                // Nhận diện theo tiêu đề cột 3 để tránh đọc lệch cột.
+                bool coCotNhom = LaTieuDe(ws.Cell(1, 3).GetString(), "Nhom", "Nhóm");
+
+                int colTen = 2;
+                int colNhom = coCotNhom ? 3 : -1;
+                int colDonVi = coCotNhom ? 4 : 3;
+                int colDonGia = coCotNhom ? 5 : 4;
+                int colGhiChu = coCotNhom ? 6 : 5;
+
                 foreach (var row in ws.RowsUsed().Skip(1))
                 {
                     try
@@ -189,11 +202,11 @@ namespace AIE.Data.ImportExport
                         data.Add(new NhanCong
                         {
                             MaNC = maNC,
-                            TenNC = row.Cell(2).GetString().Trim(),
-                            Nhom = 0,
-                            DonVi = row.Cell(3).GetString().Trim(),
-                            DonGia = row.Cell(4).TryGetValue<decimal>(out var d) ? d : 0,
-                            GhiChu = row.Cell(5).GetString().Trim(),
+                            TenNC = row.Cell(colTen).GetString().Trim(),
+                            Nhom = colNhom > 0 && row.Cell(colNhom).TryGetValue<int>(out var nhom) ? nhom : 0,
+                            DonVi = row.Cell(colDonVi).GetString().Trim(),
+                            DonGia = row.Cell(colDonGia).TryGetValue<decimal>(out var d) ? d : 0,
+                            GhiChu = row.Cell(colGhiChu).GetString().Trim(),
                             NgayCapNhat = DateTime.Now
                         });
                         result.SoLuongThanhCong++;
@@ -242,6 +255,17 @@ namespace AIE.Data.ImportExport
                 }
             }
             return data;
+        }
+
+        /// <summary>So khớp tiêu đề cột (bỏ khoảng trắng, không phân biệt hoa thường/dấu).</summary>
+        private static bool LaTieuDe(string tieuDe, params string[] ungVien)
+        {
+            var t = (tieuDe ?? string.Empty).Trim();
+            foreach (var u in ungVien)
+            {
+                if (string.Equals(t, u, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
     }
 }

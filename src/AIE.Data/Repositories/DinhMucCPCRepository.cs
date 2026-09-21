@@ -22,9 +22,10 @@ public class DinhMucCPCRepository
 
     public List<DinhMucCPC> GetByLoaiCongTrinh(string loaiCongTrinh, string? phanLoaiPhu = null)
     {
-        bool isNongNghiep = loaiCongTrinh == "Nông nghiệp & PTNT" || loaiCongTrinh == "Nông nghiệp và môi trường";
+        loaiCongTrinh = DinhMucTT38Database.ChuanHoaLoaiCongTrinh(loaiCongTrinh);
+        bool isNongNghiep = loaiCongTrinh == DinhMucTT38Database.LoaiNongNghiepMoiTruong;
         string sql = isNongNghiep 
-            ? "SELECT * FROM DinhMucCPC WHERE LoaiCongTrinh IN ('Nông nghiệp & PTNT', 'Nông nghiệp và môi trường')"
+            ? "SELECT * FROM DinhMucCPC WHERE LoaiCongTrinh IN ('Nông nghiệp & PTNT', 'Nông nghiệp và môi trường', 'Nông nghiệp & Môi trường')"
             : "SELECT * FROM DinhMucCPC WHERE LoaiCongTrinh = @LoaiCongTrinh";
 
         if (phanLoaiPhu != null)

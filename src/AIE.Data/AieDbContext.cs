@@ -1,23 +1,45 @@
+using System;
 using System.Data;
 using System.Data.SQLite;
 using System.IO;
 
 namespace AIE.Data
 {
-    public class AieDbContext
+    public class AieDbContext : IDisposable
     {
+        /// <summary>Thời gian chờ tối đa (ms) khi CSDL đang bị thao tác khác giữ khóa.</summary>
+        private const int BusyTimeoutMs = 5000;
+
         private readonly string _connectionString;
 
         public AieDbContext(string dbPath)
         {
-            _connectionString = $"Data Source={dbPath};Version=3;";
+            // Pooling: tái sử dụng kết nối; BusyTimeout: chờ thay vì báo lỗi "database is locked".
+            _connectionString = $"Data Source={dbPath};Version=3;Pooling=True;BusyTimeout={BusyTimeoutMs};";
         }
 
         public IDbConnection GetConnection()
         {
             var conn = new SQLiteConnection(_connectionString);
             conn.Open();
+
+            // Áp PRAGMA cho từng kết nối (an toàn kể cả khi driver không hỗ trợ BusyTimeout trong chuỗi kết nối).
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = $"PRAGMA busy_timeout={BusyTimeoutMs}; PRAGMA foreign_keys=ON;";
+                cmd.ExecuteNonQuery();
+            }
+
             return conn;
+        }
+
+        /// <summary>
+        /// AieDbContext không giữ kết nối thường trực (mỗi thao tác mở/đóng riêng), nên không có tài nguyên cần giải phóng.
+        /// Triển khai IDisposable để sẵn sàng cho các thay đổi sau này và để dùng được với using.
+        /// </summary>
+        public void Dispose()
+        {
+            GC.SuppressFinalize(this);
         }
 
         public void InitializeDatabase()

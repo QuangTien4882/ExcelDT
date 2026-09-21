@@ -115,23 +115,51 @@ public class ThamDinhConfigForm : Form
 
     #endregion
 
-    public ThamDinhConfigForm(List<string> sheetNames)
+    public ThamDinhConfigForm(List<string> sheetNames, int? defaultBoDonGiaId = null)
     {
         InitializeComponent();
         AIE.ExcelAddIn.Helpers.FormStateHelper.Attach(this);
         PopulateColumns();
 
-        // Nạp danh sách sheet nhưng KHÔNG chọn mặc định
+        // Nạp danh sách sheet
         foreach (var name in sheetNames)
             cbSheetName.Items.Add(name);
 
-        // Gắn event SAU khi nạp xong — chỉ kích hoạt khi user tự chọn
         cbSheetName.SelectedIndexChanged += CbSheetName_SelectedIndexChanged;
 
-        LoadBoDonGia();
+        LoadBoDonGia(defaultBoDonGiaId);
+        SelectBestDefaultSheet(sheetNames);
     }
 
-    private void LoadBoDonGia()
+    private void SelectBestDefaultSheet(List<string> sheetNames)
+    {
+        try
+        {
+            var app = (Microsoft.Office.Interop.Excel.Application)ExcelDna.Integration.ExcelDnaUtil.Application;
+            string activeSheet = app?.ActiveWorkbook?.ActiveSheet is Microsoft.Office.Interop.Excel.Worksheet ws ? ws.Name : null;
+            
+            string best = null;
+            if (!string.IsNullOrEmpty(activeSheet) && sheetNames.Contains(activeSheet))
+            {
+                best = activeSheet;
+            }
+            else
+            {
+                best = sheetNames.FirstOrDefault(s => {
+                    string sl = s.ToLower();
+                    return sl.Contains("dutoan") || sl.Contains("dự toán") || sl.Contains("chiphixd") || sl.Contains("chi phí xd") || sl.Contains("dongia") || sl.Contains("đơn giá") || sl.Contains("phân tích") || sl.Contains("phantich") || sl.Contains("congtrinh") || sl.Contains("dt");
+                }) ?? sheetNames.FirstOrDefault();
+            }
+
+            if (!string.IsNullOrEmpty(best) && cbSheetName.Items.Contains(best))
+            {
+                cbSheetName.SelectedItem = best;
+            }
+        }
+        catch { }
+    }
+
+    private void LoadBoDonGia(int? defaultBoDonGiaId = null)
     {
         var db = new AIE.Data.DatabaseManager();
         var repo = new AIE.Data.Repositories.BoDonGiaRepository(db.Context);
@@ -139,11 +167,21 @@ public class ThamDinhConfigForm : Form
         
         list.Insert(0, new AIE.Data.Repositories.BoDonGiaRepository.BoDonGiaInfo { Id = 0, TenBo = "(Mặc định / Không áp dụng)" });
         cbBoDonGia.DataSource = list;
+
+        if (defaultBoDonGiaId.HasValue && defaultBoDonGiaId.Value > 0 && list.Any(x => x.Id == defaultBoDonGiaId.Value))
+        {
+            cbBoDonGia.SelectedValue = defaultBoDonGiaId.Value;
+        }
+        else if (list.Count > 1)
+        {
+            // Tự động chọn Bộ đơn giá mới nhất được lưu trong CSDL
+            cbBoDonGia.SelectedIndex = 1;
+        }
     }
 
     private void InitializeComponent()
     {
-        this.Text = "Cấu Hình Thẩm Định Dự Toán";
+        this.Text = "Cấu Hình Đọc Dự Toán Cần Thẩm Định";
         this.StartPosition = FormStartPosition.CenterParent;
         this.FormBorderStyle = FormBorderStyle.FixedDialog;
         this.MaximizeBox = false;
@@ -266,13 +304,23 @@ public class ThamDinhConfigForm : Form
         flp.Margin = new Padding(0, 20, 0, 0);
         flp.WrapContents = false;
 
-        btnOk = new Button { Text = "Bắt đầu", Width = 120, Height = 38, BackColor = Color.FromArgb(0, 120, 215), ForeColor = Color.White, FlatStyle = FlatStyle.Flat };
+        btnOk = new Button
+        {
+            Text = "Bắt đầu thẩm định (kiểm tra)",
+            AutoSize = true,
+            MinimumSize = new Size(270, 42),
+            Height = 42,
+            Padding = new Padding(15, 0, 15, 0),
+            BackColor = Color.FromArgb(0, 120, 215),
+            ForeColor = Color.White,
+            FlatStyle = FlatStyle.Flat
+        };
         btnOk.Font = new Font("Segoe UI", 10f, FontStyle.Bold);
         btnOk.FlatAppearance.BorderSize = 0;
         btnOk.Click += BtnOk_Click;
-        toolTip.SetToolTip(btnOk, "Bắt đầu thẩm định dự toán");
+        toolTip.SetToolTip(btnOk, "Bắt đầu kiểm tra thẩm định dự toán");
 
-        btnCancel = new Button { Text = "Hủy bỏ", Width = 120, Height = 38, FlatStyle = FlatStyle.Flat };
+        btnCancel = new Button { Text = "Hủy bỏ", Width = 110, Height = 42, FlatStyle = FlatStyle.Flat };
         btnCancel.Font = new Font("Segoe UI", 10f);
         btnCancel.Margin = new Padding(15, 0, 0, 0);
         btnCancel.Click += (s, e) => this.DialogResult = DialogResult.Cancel;
@@ -349,11 +397,17 @@ public class ThamDinhConfigForm : Form
             return;
         }
 
-        if (cbBoDonGia.SelectedValue != null)
+        if (cbBoDonGia.SelectedItem is AIE.Data.Repositories.BoDonGiaRepository.BoDonGiaInfo boInfo)
         {
-            int val = (int)cbBoDonGia.SelectedValue;
-            if (val > 0) SelectedBoDonGiaId = val;
-            else SelectedBoDonGiaId = null;
+            SelectedBoDonGiaId = boInfo.Id > 0 ? boInfo.Id : (int?)null;
+        }
+        else if (cbBoDonGia.SelectedValue is int val)
+        {
+            SelectedBoDonGiaId = val > 0 ? val : (int?)null;
+        }
+        else
+        {
+            SelectedBoDonGiaId = null;
         }
 
         btnOk.Enabled = false;
@@ -461,44 +515,47 @@ public class ThamDinhConfigForm : Form
                     // === Nhận diện cột ===
 
                     // Mã hiệu / SH Định mức
-                    if (cellText.Contains("Mã hiệu") || cellText.Contains("mã công tác") ||
+                    if (cellText.Contains("mã hiệu") || cellText.Contains("mã công tác") ||
                         cellText.Contains("sh định mức") || cellText.Contains("sh đm") ||
                         cellText.Contains("số hiệu") || cellText.Contains("mã đm") ||
-                        cellText == "mã cv" || (cellText.StartsWith("mã") && cellText.Length < 20))
+                        cellText.Contains("mã định mức") || cellText == "mã cv" || 
+                        (cellText.StartsWith("mã") && cellText.Length < 20))
                     {
                         tmpMaHieu = colLetter;
                         matchCount++;
                     }
                     // Tên công tác / hạng mục
-                    else if (cellText.Contains("hạng mục công tác") || cellText.Contains("Tên công tác") ||
+                    else if (cellText.Contains("hạng mục công tác") || cellText.Contains("tên công tác") ||
                              cellText.Contains("hạng mục công việc") || cellText.Contains("nội dung công việc") ||
-                             cellText.Contains("danh mục") || cellText.Contains("tên vật tư") ||
-                             cellText.Contains("nội dung"))
+                             cellText.Contains("tên công việc") || cellText.Contains("danh mục") || 
+                             cellText.Contains("tên vật tư") || cellText.Contains("nội dung") || 
+                             cellText.Contains("diễn giải"))
                     {
                         tmpTen = colLetter;
                         matchCount++;
                     }
                     // Đơn vị
-                    else if (cellText == "Đơn vị" || cellText == "đvt" || cellText == "Đơn vị tính" || cellText == "đ.vị")
+                    else if (cellText == "đơn vị" || cellText == "đvt" || cellText.Contains("đơn vị tính") || cellText == "đ.vị")
                     {
                         tmpDonVi = colLetter;
                         matchCount++;
                     }
-                    // Định mức / Hao phí
-                    else if (cellText == "định mức" || cellText == "hao phí" || cellText == "hệ số" ||
-                             (cellText.Contains("định mức") && !cellText.Contains("sh")))
+                    // Định mức / Khối lượng / Hao phí
+                    else if (cellText == "định mức" || cellText == "khối lượng" || cellText == "kl" || cellText == "hao phí" || cellText == "hệ số" ||
+                             (cellText.Contains("định mức") && !cellText.Contains("sh")) ||
+                             cellText.Contains("khối lượng") || cellText.Contains("hao phí"))
                     {
                         tmpDinhMuc = colLetter;
                         matchCount++;
                     }
                     // Đơn giá
-                    else if (cellText.Contains("đơn giá") || cellText.Contains("giá vật tư") || cellText == "giá")
+                    else if (cellText.Contains("đơn giá") || cellText.Contains("giá dự toán") || cellText.Contains("giá vật tư") || cellText == "giá")
                     {
                         tmpDonGia = colLetter;
                         matchCount++;
                     }
                     // Thành tiền
-                    else if (cellText.Contains("Thành tiền"))
+                    else if (cellText.Contains("thành tiền") || cellText == "tiền")
                     {
                         tmpThanhTien = colLetter;
                         matchCount++;

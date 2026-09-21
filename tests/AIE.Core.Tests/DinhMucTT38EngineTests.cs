@@ -11,15 +11,15 @@ namespace AIE.Core.Tests
         [Fact]
         public void Test_NoiSuy_QLDA_DanDung()
         {
-            // Mốc quy mô: 10 tỷ (3.283%), 20 tỷ (2.766%)
-            // Tại 15 tỷ: Nt = 3.283 - ((3.283 - 2.766) / (20 - 10)) * (15 - 10) = 3.283 - (0.517 / 10) * 5 = 3.283 - 0.2585 = 3.0245%
+            // Mốc quy mô QLDA (TT 38/2026 Bảng 1.1): <=10 tỷ (3.446%), <=20 tỷ (2.923%)
+            // Tại 15 tỷ: Nt = 3.446 - ((3.446 - 2.923) / (20 - 10)) * (15 - 10) = 3.446 - (0.523 / 10) * 5 = 3.446 - 0.2615 = 3.1845%
             decimal quyMo15Ty = 15m;
             decimal tyLe = DinhMucChiPhiKhacBTC.NoiSuy(
                 DinhMucTT38Database.MocQuyMoQLDA,
                 DinhMucTT38Database.TiLeQLDA["Dân dụng"],
                 quyMo15Ty);
 
-            Assert.Equal(3.0245m, tyLe);
+            Assert.Equal(3.1845m, tyLe);
         }
 
         [Fact]
@@ -238,6 +238,93 @@ namespace AIE.Core.Tests
             model.ChiPhiTBTruocThue = 500_000_000m;
             DinhMucTT38Engine.CapNhatToanBoDinhMucVaTinhToan(model);
             Assert.True(itemGSTB.IsActive);
+        }
+
+        [Fact]
+        public void Test_TraCuu_QLDA_DoiChieu_DinhMuc()
+        {
+            var model = DinhMucTT38Engine.TaoBangKinhPhiMacDinh(
+                loaiCT: "Dân dụng",
+                capCT: "Cấp III",
+                soBuocTK: 2,
+                chiPhiXD: 10_000_000_000m,
+                chiPhiTB: 5_000_000_000m,
+                chiPhiBT: 0m
+            );
+            DinhMucTT38Engine.CapNhatToanBoDinhMucVaTinhToan(model);
+
+            var tt = DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "G_QLDA");
+            Assert.NotNull(tt);
+            Assert.Contains("1.1", tt.TenBang);
+            Assert.Equal(7, tt.SoTrangPdf);
+            Assert.Equal("G_XD + G_TB (trước thuế)", tt.CoSoTinh);
+            // quy mô = (10 + 5) tỷ
+            Assert.Equal(15m, tt.QuyMoTy);
+            Assert.True(tt.TyLeNoiSuy > 0);
+
+            // Tỷ lệ nội suy phải khớp đúng bảng định mức
+            var tyLeKyVong = DinhMucChiPhiKhacBTC.NoiSuy(
+                DinhMucTT38Database.MocQuyMoQLDA,
+                DinhMucTT38Database.TiLeQLDA["Dân dụng"],
+                15m);
+            Assert.Equal(tyLeKyVong, tt.TyLeNoiSuy);
+
+            // Tỷ lệ hiện tại trên dòng phải khớp tỷ lệ nội suy sau khi engine tính
+            var itemQLDA = model.Items.First(x => x.MaChiPhi == "G_QLDA");
+            Assert.Equal(itemQLDA.TyLePhanTram, tt.TyLeHienTai);
+        }
+
+        [Fact]
+        public void Test_TraCuu_TVTK_3Buoc_Nhan155()
+        {
+            var model = DinhMucTT38Engine.TaoBangKinhPhiMacDinh(
+                loaiCT: "Giao thông",
+                capCT: "Cấp II",
+                soBuocTK: 3,
+                chiPhiXD: 20_000_000_000m,
+                chiPhiTB: 0m,
+                chiPhiBT: 0m
+            );
+            DinhMucTT38Engine.CapNhatToanBoDinhMucVaTinhToan(model);
+
+            var tt = DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "TV_TK");
+            Assert.NotNull(tt);
+            Assert.True(tt.SoTrangPdf > 0);
+            Assert.True(tt.TiLeDinhMuc.Length > 0);
+            // 3 bước => hệ số k phải ≥ 1 (kTV = 1) và tỷ lệ nội suy = định mức BVTC × 1.55
+            var tyLeCoSo = DinhMucChiPhiKhacBTC.NoiSuy(tt.MocQuyMo, tt.TiLeDinhMuc, tt.QuyMoTy);
+            Assert.Equal(Math.Round(tyLeCoSo * 1.55m, 4), tt.TyLeNoiSuy);
+        }
+
+        [Fact]
+        public void Test_TraCuu_KhongCoDinhMuc_TraVeNull()
+        {
+            var model = DinhMucTT38Engine.TaoBangKinhPhiMacDinh();
+            // G_XD nhập trực tiếp, không có định mức tỷ lệ TT38
+            Assert.Null(DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "G_XD"));
+            Assert.Null(DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "KHONG_TON_TAI"));
+        }
+
+        [Fact]
+        public void Test_TraCuu_KTDDA_HeSoThueThamTra()
+        {
+            var model = DinhMucTT38Engine.TaoBangKinhPhiMacDinh(
+                loaiCT: "Dân dụng",
+                capCT: "Cấp III",
+                soBuocTK: 2,
+                chiPhiXD: 10_000_000_000m,
+                chiPhiTB: 0m,
+                chiPhiBT: 0m
+            );
+            model.YeuCauThueThamTra = true;
+            DinhMucTT38Engine.CapNhatToanBoDinhMucVaTinhToan(model);
+
+            var tt = DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "K_TD_DA");
+            Assert.NotNull(tt);
+            Assert.Contains("Tổng mức đầu tư", tt.CoSoTinh);
+            Assert.Equal(0.5m, tt.HeSo);
+            Assert.True(tt.QuyMoTy > 0);
+            Assert.True(tt.TyLeNoiSuy > 0);
         }
     }
 }

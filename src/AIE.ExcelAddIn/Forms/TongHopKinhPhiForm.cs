@@ -14,6 +14,7 @@ using AIE.ExcelAddIn.Services;
 using ExcelDna.Integration;
 using ExcelApp = Microsoft.Office.Interop.Excel.Application;
 using ExcelWb = Microsoft.Office.Interop.Excel.Workbook;
+using Worksheet = Microsoft.Office.Interop.Excel.Worksheet;
 using Font = System.Drawing.Font;
 using TextBox = System.Windows.Forms.TextBox;
 using CheckBox = System.Windows.Forms.CheckBox;
@@ -31,6 +32,7 @@ namespace AIE.ExcelAddIn.Forms
         private DuToan _duToan;
         private BangTongHopKinhPhiModel _model;
         private XuatBangBieuService _xuatService;
+        private bool _dangKiemTraDinhMuc = false;
 
         // TabControl chính
         private TabControl tabMain;
@@ -46,6 +48,7 @@ namespace AIE.ExcelAddIn.Forms
         private ComboBox cboPhanLoaiPhuXD;
         private TextBox txtQuyMoXD;
         private string _lastCustomQuyMo = "15";
+        private bool _isUpdatingQuyMoXD = false;
         private ComboBox cboLoaiNhaTamXD;
         private CheckBox chkVungSauXaXD;
         private TextBox txtCPCXD;
@@ -59,6 +62,8 @@ namespace AIE.ExcelAddIn.Forms
         private ChiPhiXayDungCalc _calcService;
         private DinhMucCPCRepository _cpcRepo;
         private DinhMucTTRepository _ttRepo;
+        private System.Data.IDbConnection _dbConn;
+        private DatabaseManager _dbManager;
         private decimal _tongT = 0;
         private decimal _tongNC = 0;
         private decimal _tongVL = 0;
@@ -119,14 +124,22 @@ namespace AIE.ExcelAddIn.Forms
         private bool _isUpdating = false;
         private bool _isSyncingLoaiCT = false;
         private bool _isSyncingVAT = false;
+        private bool _isFromThamDinh = false;
+        private System.Windows.Forms.Timer _tyLeDebounce;
 
-        public TongHopKinhPhiForm(DuToan duToan, bool macDinhTongMucDauTu = false)
+        public TongHopKinhPhiForm(DuToan duToan, bool macDinhTongMucDauTu = false, bool isFromThamDinh = false)
         {
             _duToan = duToan ?? new DuToan();
+            _isFromThamDinh = isFromThamDinh;
             _xuatService = new XuatBangBieuService();
 
             KhoiTaoDuLieu();
             InitializeComponent();
+
+            if (_isFromThamDinh)
+            {
+                this.Text = "Bảng Tổng Hợp Kinh Phí Thẩm Định Dự Toán (Thông tư 36/2026/TT-BXD & TT 38/2026/TT-BXD)";
+            }
 
             if (macDinhTongMucDauTu)
             {
@@ -154,11 +167,24 @@ namespace AIE.ExcelAddIn.Forms
             }
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _dbConn?.Dispose();
+                _dbConn = null;
+                _dbManager?.Dispose();
+                _dbManager = null;
+            }
+            base.Dispose(disposing);
+        }
+
         private void KhoiTaoDuLieu()
         {
-            var db = new DatabaseManager();
-            _cpcRepo = new DinhMucCPCRepository(db.Context.GetConnection());
-            _ttRepo = new DinhMucTTRepository(db.Context.GetConnection());
+            _dbManager = new DatabaseManager();
+            _dbConn = _dbManager.Context.GetConnection();
+            _cpcRepo = new DinhMucCPCRepository(_dbConn);
+            _ttRepo = new DinhMucTTRepository(_dbConn);
             _calcService = new ChiPhiXayDungCalc();
 
             _tongVL = _duToan.DanhSachHangMuc?.Sum(hm => hm.TongVL) ?? 0m;
@@ -173,7 +199,10 @@ namespace AIE.ExcelAddIn.Forms
             }
             else
             {
-                hasScanned = QuetDuLieuTuSheetTHChiPhiXD();
+                if (!_isFromThamDinh)
+                {
+                    hasScanned = QuetDuLieuTuSheetTHChiPhiXD();
+                }
                 if (!hasScanned)
                 {
                     string loaiCT = !string.IsNullOrEmpty(_duToan.LoaiCongTrinh) ? _duToan.LoaiCongTrinh : "Dân dụng";
@@ -566,7 +595,7 @@ namespace AIE.ExcelAddIn.Forms
             // Hàng 1: Loại CT, Cấp CT, Bước TK, Thuế VAT chung
             var lblLoai = new Label { Text = "Loại công trình:", AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Font = UIHelper.GetFont(10.5f, FontStyle.Regular), ForeColor = Color.Black, Margin = new Padding(2, 0, 6, 0) };
             cboLoaiCongTrinh = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList, Font = UIHelper.GetFont(10.5f), Margin = new Padding(0, 6, 12, 6) };
-            cboLoaiCongTrinh.Items.AddRange(new object[] { "-- Chọn loại công trình --", "Dân dụng", "Công nghiệp", "Giao thông", "Nông nghiệp & PTNT", "Hạ tầng kỹ thuật" });
+            cboLoaiCongTrinh.Items.AddRange(new object[] { "-- Chọn loại công trình --", "Dân dụng", "Công nghiệp", "Giao thông", DinhMucTT38Database.LoaiNongNghiepMoiTruong, "Hạ tầng kỹ thuật" });
             cboLoaiCongTrinh.SelectedIndex = 0;
             cboLoaiCongTrinh.SelectedIndexChanged += (s, e) => CapNhatKhiDoiThongSo(traLaiDinhMuc: true);
             tblInputs.Controls.Add(lblLoai, 0, 0);
@@ -957,6 +986,7 @@ namespace AIE.ExcelAddIn.Forms
             UIHelper.ApplyStyle(dgvChiPhi);
             dgvChiPhi.RowTemplate.Height = 36; // Rộng rãi, chữ to rõ ràng
             dgvChiPhi.CellValueChanged += DgvChiPhi_CellValueChanged;
+            dgvChiPhi.CellDoubleClick += DgvChiPhi_CellDoubleClick;
             dgvChiPhi.CurrentCellDirtyStateChanged += (s, e) =>
             {
                 if (dgvChiPhi.IsCurrentCellDirty)
@@ -1065,6 +1095,7 @@ namespace AIE.ExcelAddIn.Forms
             var lblDonViQuyMo = new Label { Text = "(tỷ đồng)", Location = new Point(308, ty), Width = 80, Font = UIHelper.GetFont(10f), ForeColor = Color.FromArgb(74, 85, 104) };
             txtQuyMoXD.TextChanged += (s, e) =>
             {
+                if (_isUpdatingQuyMoXD) return;
                 if (txtQuyMoXD.Enabled && decimal.TryParse(txtQuyMoXD.Text.Replace(',', '.'), out _))
                 {
                     _lastCustomQuyMo = txtQuyMoXD.Text;
@@ -1142,11 +1173,18 @@ namespace AIE.ExcelAddIn.Forms
                 lblNhaTamXDLabel, txtNhaTamXD, lblDonViNT
             });
 
-            txtCPCXD.TextChanged += (s, e) => TinhToanChiPhiXD();
-            txtTTXD.TextChanged += (s, e) => TinhToanChiPhiXD();
-            txtTNCTTTXD.TextChanged += (s, e) => TinhToanChiPhiXD();
-            txtGTGTXD.TextChanged += (s, e) => TinhToanChiPhiXD();
-            txtNhaTamXD.TextChanged += (s, e) => TinhToanChiPhiXD();
+            _tyLeDebounce = new System.Windows.Forms.Timer { Interval = 400 };
+            _tyLeDebounce.Tick += (s, e) =>
+            {
+                _tyLeDebounce.Stop();
+                TinhToanChiPhiXD();
+            };
+
+            txtCPCXD.TextChanged += (s, e) => { _tyLeDebounce.Stop(); _tyLeDebounce.Start(); };
+            txtTTXD.TextChanged += (s, e) => { _tyLeDebounce.Stop(); _tyLeDebounce.Start(); };
+            txtTNCTTTXD.TextChanged += (s, e) => { _tyLeDebounce.Stop(); _tyLeDebounce.Start(); };
+            txtGTGTXD.TextChanged += (s, e) => { _tyLeDebounce.Stop(); _tyLeDebounce.Start(); };
+            txtNhaTamXD.TextChanged += (s, e) => { _tyLeDebounce.Stop(); _tyLeDebounce.Start(); };
 
             btnChuyenSangTab2 = new Button
             {
@@ -1380,11 +1418,11 @@ namespace AIE.ExcelAddIn.Forms
 
                 foreach (var hm in _duToan.DanhSachHangMuc)
                 {
-                    string label = $"{LapDuToanExcelService.ToRomanNumeral(hm.STT)}. {hm.TenHangMuc}";
-                    if (!string.IsNullOrEmpty(hm.LoaiCongTrinh))
-                    {
-                        label += $" ({hm.LoaiCongTrinh})";
-                    }
+                    string roman = LapDuToanExcelService.ToRomanNumeral(hm.STT);
+                    string tenHM = hm.TenHangMuc?.Trim() ?? "";
+                    string label = string.IsNullOrEmpty(roman) || tenHM.StartsWith(roman + ".", StringComparison.OrdinalIgnoreCase)
+                        ? tenHM
+                        : $"{roman}. {tenHM}";
                     cboHangMucSelector.Items.Add(label);
                 }
             }
@@ -1593,7 +1631,12 @@ namespace AIE.ExcelAddIn.Forms
             {
                 decimal gxd = hm.ChiPhiXD?.GXD ?? 0;
                 decimal t = hm.ChiPhiXD?.T ?? hm.TongChiPhi;
-                dgvPreviewChiPhiXD.Rows.Add($"{LapDuToanExcelService.ToRomanNumeral(hm.STT)}. {hm.TenHangMuc} ({hm.LoaiCongTrinh})", $"T: {t:N0}", "G_XD:", gxd);
+                string roman = LapDuToanExcelService.ToRomanNumeral(hm.STT);
+                string tenHM = hm.TenHangMuc?.Trim() ?? "";
+                string label = string.IsNullOrEmpty(roman) || tenHM.StartsWith(roman + ".", StringComparison.OrdinalIgnoreCase)
+                    ? tenHM
+                    : $"{roman}. {tenHM}";
+                dgvPreviewChiPhiXD.Rows.Add(label, $"T: {t:N0}", "G_XD:", gxd);
             }
 
             foreach (DataGridViewRow r in dgvPreviewChiPhiXD.Rows)
@@ -1602,7 +1645,12 @@ namespace AIE.ExcelAddIn.Forms
             }
             dgvPreviewChiPhiXD?.AutoFit();
 
-            DongBoSangTab2(kq, 10m, 1.0m);
+            decimal.TryParse(txtGTGTXD.Text.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal gtgtTongHop);
+            decimal.TryParse(txtNhaTamXD.Text.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal nhatamTongHop);
+            if (gtgtTongHop <= 0) gtgtTongHop = 10m;
+            if (nhatamTongHop <= 0) nhatamTongHop = 1.0m;
+
+            DongBoSangTab2(kq, gtgtTongHop, nhatamTongHop);
         }
 
         private void LoadGiaiDoanXD()
@@ -1678,10 +1726,10 @@ namespace AIE.ExcelAddIn.Forms
         {
             cboLoaiCongTrinhXD.DataSource = null;
             cboLoaiCongTrinhXD.Items.Clear();
-            cboLoaiCongTrinhXD.Items.AddRange(new object[] { "-- Chọn loại công trình --", "Dân dụng", "Công nghiệp", "Giao thông", "Nông nghiệp & PTNT", "Hạ tầng kỹ thuật" });
+            cboLoaiCongTrinhXD.Items.AddRange(new object[] { "-- Chọn loại công trình --", "Dân dụng", "Công nghiệp", "Giao thông", DinhMucTT38Database.LoaiNongNghiepMoiTruong, "Hạ tầng kỹ thuật" });
 
             string target = !string.IsNullOrEmpty(_duToan.LoaiCongTrinh) ? _duToan.LoaiCongTrinh : (!string.IsNullOrEmpty(_model?.LoaiCongTrinh) ? _model.LoaiCongTrinh : "Dân dụng");
-            if (target == "Nông nghiệp và môi trường") target = "Nông nghiệp & PTNT";
+            if (target == "Nông nghiệp và môi trường" || target == "Nông nghiệp & PTNT") target = DinhMucTT38Database.LoaiNongNghiepMoiTruong;
 
             if (!string.IsNullOrEmpty(target) && cboLoaiCongTrinhXD.Items.Contains(target))
             {
@@ -1738,7 +1786,7 @@ namespace AIE.ExcelAddIn.Forms
 
             var allData = _cpcRepo.GetAll().Where(x => 
                 x.LoaiCongTrinh == loaiCT || 
-                (loaiCT == "Nông nghiệp & PTNT" && x.LoaiCongTrinh == "Nông nghiệp và môi trường")
+                (loaiCT == DinhMucTT38Database.LoaiNongNghiepMoiTruong && (x.LoaiCongTrinh == "Nông nghiệp và môi trường" || x.LoaiCongTrinh == "Nông nghiệp & PTNT"))
             ).ToList();
 
             var phanLoai = allData.Where(x => !string.IsNullOrEmpty(x.PhanLoaiPhu))
@@ -1805,8 +1853,57 @@ namespace AIE.ExcelAddIn.Forms
                 txtQuyMoXD.ForeColor = Color.Black;
                 if (txtQuyMoXD.Text.Contains("≤") || txtQuyMoXD.Text.Contains("Bảng") || !decimal.TryParse(txtQuyMoXD.Text.Replace(',', '.'), out _))
                 {
-                    txtQuyMoXD.Text = string.IsNullOrEmpty(_lastCustomQuyMo) ? "15" : _lastCustomQuyMo;
+                    // Giai đoạn lập dự toán: ưu tiên quy mô thực tế từ dự toán
+                    decimal quyMoThucTe = TinhQuyMoTuChiPhiXD();
+                    if (quyMoThucTe <= 0 &&
+                        decimal.TryParse((_lastCustomQuyMo ?? "").Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal lastQuyMo) &&
+                        lastQuyMo > 0)
+                    {
+                        quyMoThucTe = lastQuyMo;
+                    }
+                    if (quyMoThucTe <= 0) quyMoThucTe = 15m;
+                    HienThiQuyMoXD(quyMoThucTe);
                 }
+            }
+        }
+
+        /// <summary>
+        /// Xác định quy mô chi phí xây dựng trước thuế trong TMĐT (tỷ đồng) từ dự toán thực tế.
+        /// Dùng làm cơ sở tra Bảng 3.3 (CPC) và Bảng 3.7 (nhà tạm) theo TT 36/2026.
+        /// </summary>
+        private decimal TinhQuyMoTuChiPhiXD()
+        {
+            const decimal TY = 1_000_000_000m;
+
+            decimal gxdtt = _duToan?.ChiPhiXD?.GXDTT ?? 0m;
+            if (gxdtt <= 0)
+                gxdtt = _currentHangMuc?.ChiPhiXD?.GXDTT ?? 0m;
+
+            if (gxdtt <= 0 && _tongT > 0)
+            {
+                // Ước lượng GXDTT từ chi phí trực tiếp với tỷ lệ đại diện
+                // GXDTT = T × (1 + (CPC + TT)/100) × (1 + TNCTTT/100)
+                decimal cpc = 7.3m, tt = 2.5m, tncttt = 5.5m;
+                gxdtt = _tongT * (1m + (cpc + tt) / 100m) * (1m + tncttt / 100m);
+            }
+
+            if (gxdtt <= 0) return 0m;
+            return Math.Round(gxdtt / TY, 4, MidpointRounding.AwayFromZero);
+        }
+
+        private void HienThiQuyMoXD(decimal quyMo)
+        {
+            if (txtQuyMoXD == null || quyMo <= 0) return;
+            string text = quyMo.ToString("0.####").Replace('.', ',');
+            if (txtQuyMoXD.Text == text) return;
+            _isUpdatingQuyMoXD = true;
+            try
+            {
+                txtQuyMoXD.Text = text;
+            }
+            finally
+            {
+                _isUpdatingQuyMoXD = false;
             }
         }
 
@@ -1822,16 +1919,33 @@ namespace AIE.ExcelAddIn.Forms
             bool laVungSauXa = chkVungSauXaXD?.Checked ?? false;
 
             decimal quyMo = 15m;
-            string rawQuyMo = (txtQuyMoXD?.Text ?? "").Replace("≤", "").Replace("<=", "").Replace("tỷ", "").Trim();
-            if (decimal.TryParse(rawQuyMo.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal parsedQuyMo) && parsedQuyMo > 0)
+            bool laLapDuToan = !(giaiDoan.IndexOf("Tổng mức đầu tư", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 giaiDoan.IndexOf("NCKT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 giaiDoan.IndexOf("kinh tế - kỹ thuật", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 giaiDoan.IndexOf("KT-KT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                 giaiDoan.IndexOf("KTKT", StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (laLapDuToan)
             {
-                quyMo = parsedQuyMo;
+                // Giai đoạn lập dự toán xây dựng: quy mô lấy trực tiếp từ
+                // chi phí xây dựng trước thuế trong TMĐT của dự toán (tỷ đồng)
+                quyMo = TinhQuyMoTuChiPhiXD();
+                if (quyMo <= 0) quyMo = 15m;
+                HienThiQuyMoXD(quyMo);
             }
-            else if (giaiDoan.IndexOf("kinh tế - kỹ thuật", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     giaiDoan.IndexOf("KT-KT", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                     giaiDoan.IndexOf("KTKT", StringComparison.OrdinalIgnoreCase) >= 0)
+            else
             {
-                quyMo = 40m;
+                string rawQuyMo = (txtQuyMoXD?.Text ?? "").Replace("≤", "").Replace("<=", "").Replace("tỷ", "").Trim();
+                if (decimal.TryParse(rawQuyMo.Replace(',', '.'), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal parsedQuyMo) && parsedQuyMo > 0)
+                {
+                    quyMo = parsedQuyMo;
+                }
+                else if (giaiDoan.IndexOf("kinh tế - kỹ thuật", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         giaiDoan.IndexOf("KT-KT", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                         giaiDoan.IndexOf("KTKT", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    quyMo = 40m;
+                }
             }
 
             decimal cpc = 0m;
@@ -1903,7 +2017,11 @@ namespace AIE.ExcelAddIn.Forms
             txtTNCTTTXD.Text = tncttt.ToString("0.0").Replace('.', ',');
 
             // Tra Chi phí nhà tạm (Bảng 3.7)
-            decimal tlNhaTam = InterpolationHelper.NoiSuyTiLeNhaTam(loaiNhaTam, quyMo);
+            // Giai đoạn KT-KT khóa ô quy mô hiển thị "≤ 40" nên không dùng quyMo này tra Bảng 3.7
+            // (40 tỷ sẽ nội suy ra 1,07%/2,14%). Phải dùng quy mô thực tế của dự toán.
+            decimal quyMoNhaTam = TinhQuyMoTuChiPhiXD();
+            if (quyMoNhaTam <= 0) quyMoNhaTam = quyMo;
+            decimal tlNhaTam = InterpolationHelper.NoiSuyTiLeNhaTam(loaiNhaTam, quyMoNhaTam);
             txtNhaTamXD.Text = tlNhaTam.ToString("0.00").Replace('.', ',');
 
             // Đồng bộ giai đoạn với Tab 2 (Chế độ bảng tính và số bước thiết kế)
@@ -2483,7 +2601,7 @@ namespace AIE.ExcelAddIn.Forms
                     else if (!string.IsNullOrEmpty(loaiSel))
                     {
                         string target = loaiSel;
-                        if (target == "Nông nghiệp và môi trường") target = "Nông nghiệp & PTNT";
+                        if (target == "Nông nghiệp và môi trường" || target == "Nông nghiệp & PTNT") target = DinhMucTT38Database.LoaiNongNghiepMoiTruong;
                         if (cboLoaiCongTrinhXD.Items.Contains(target) && cboLoaiCongTrinhXD.SelectedItem?.ToString() != target)
                         {
                             cboLoaiCongTrinhXD.SelectedItem = target;
@@ -2632,9 +2750,51 @@ namespace AIE.ExcelAddIn.Forms
             CapNhatThanhTongCong();
         }
 
+        /// <summary>
+        /// Phần D - Popup Kiểm tra định mức: click đúp vào dòng khoản mục chi phí để tra cứu
+        /// bảng định mức TT 38/2026 đang áp dụng (bảng tra, tỷ lệ nội suy, trang PDF...).
+        /// </summary>
+        private void DgvChiPhi_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.RowIndex < 0) return;
+            if (_dangKiemTraDinhMuc) return;
+            var row = dgvChiPhi.Rows[e.RowIndex];
+            if (row.Tag is not ChiPhiKinhPhiItem item) return;
+
+            _dangKiemTraDinhMuc = true;
+            try
+            {
+                // 1.3: tính toán lại model trước khi tra cứu để số liệu nội suy phản ánh đúng quy mô hiện tại
+                _model.TinhToanLai();
+                var tt = DinhMucTT38Engine.TraCuuThongTinChiPhiItem(_model, item.MaChiPhi);
+                if (tt == null)
+                {
+                    MessageBox.Show(
+                        $"Khoản mục [{item.TenChiPhi}] ({item.MaChiPhi}) không áp dụng định mức tỷ lệ theo TT 38/2026 —\nchỉ nhập trực tiếp theo dự toán riêng (hoặc theo văn bản Bộ Tài chính).",
+                        "Kiểm tra định mức", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    return;
+                }
+
+                using var frm = new ThongTinDinhMucForm(tt, item, _model, () =>
+                {
+                    HienThiDuLieuLenGrid();
+                    CapNhatThanhTongCong();
+                });
+                frm.ShowDialog(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi tra cứu định mức: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+            finally
+            {
+                _dangKiemTraDinhMuc = false;
+            }
+        }
+
         private void DgvChiPhi_CellValueChanged(object sender, DataGridViewCellEventArgs e)
         {
-            if (_isUpdating || e.RowIndex < 0) return;
+            if (_isUpdating || e.RowIndex < 0 || e.ColumnIndex < 0) return;
 
             var row = dgvChiPhi.Rows[e.RowIndex];
             if (row.Tag is not ChiPhiKinhPhiItem item) return;
@@ -2645,7 +2805,7 @@ namespace AIE.ExcelAddIn.Forms
             {
                 item.IsActive = Convert.ToBoolean(row.Cells["colActive"].Value ?? true);
                 row.DefaultCellStyle.ForeColor = item.IsActive ? Color.Black : Color.Gray;
-                _model.TinhToanLai();
+                DinhMucTT38Engine.CapNhatTiLeThamDinhDuAn(_model, null, _model.YeuCauThueThamTra);
                 CapNhatThanhTongCong();
                 return;
             }
@@ -2777,7 +2937,12 @@ namespace AIE.ExcelAddIn.Forms
             }
 
             _model.TinhToanLai();
+            if (item.MaChiPhi != "K_TD_DA")
+            {
+                DinhMucTT38Engine.CapNhatTiLeThamDinhDuAn(_model, null, _model.YeuCauThueThamTra);
+            }
             _isUpdating = true;
+            row.Cells["colTyLe"].Value = item.TyLePhanTram > 0 ? UIHelper.FormatTyLe(item.TyLePhanTram) : "";
             row.Cells["colTruocThue"].Value = UIHelper.FormatTien(item.GiaTriTruocThue);
             row.Cells["colSauThue"].Value = UIHelper.FormatTien(item.GiaTriSauThue);
             _isUpdating = false;
@@ -2859,6 +3024,149 @@ namespace AIE.ExcelAddIn.Forms
             MessageBox.Show("Đã lưu thiết lập Bảng tổng hợp kinh phí thành công!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
         }
 
+        /// <summary>
+        /// Kiểm tra tính hợp lệ của dự toán trước khi xuất: cảnh báo khi thiếu dữ liệu cơ bản
+        /// hoặc các tỷ lệ định mức phải dùng giá trị mặc định. Trả về danh sách cảnh báo (rỗng = OK).
+        /// </summary>
+        private List<string> KiemTraHopLe()
+        {
+            var list = new List<string>();
+            if (_duToan == null)
+            {
+                list.Add("Không có dữ liệu dự toán.");
+                return list;
+            }
+
+            int tongCongTac = _duToan.DanhSachHangMuc?.Sum(h => h.DanhSachCongTac.Count) ?? 0;
+            if (tongCongTac == 0)
+                list.Add("Dự toán không có công tác nào → các giá trị chi phí sẽ ra 0 đồng.");
+
+            if (string.IsNullOrEmpty(_duToan.LoaiCongTrinh))
+                list.Add("Loại công trình chưa chọn → các tỷ lệ định mức tính theo mặc định \"Dân dụng\".");
+
+            var cpxd = _duToan.ChiPhiXD;
+            if (cpxd == null)
+            {
+                list.Add("Chưa có dữ liệu Chi phí xây dựng → sẽ tính lại trong quá trình xuất.");
+                return list;
+            }
+
+            // Nạp định mức Bảng 3.3/3.5 từ CSDL (tương tự BoSungTyLeVaTinhLai) để KHÔNG báo nhầm
+            // "thiếu bảng định mức" khi tỷ lệ thực tế đã khớp Thông tư nhưng model chưa lưu giá trị %.
+            string loaiCT = !string.IsNullOrEmpty(_duToan.LoaiCongTrinh) ? _duToan.LoaiCongTrinh : "Dân dụng";
+            List<DinhMucCPC> cpcApp = null;
+            DinhMucTT ttApp = null;
+            try
+            {
+                if (cpxd.TiLeCPC <= 0m)
+                    cpcApp = _cpcRepo.GetByLoaiCongTrinh(loaiCT, null);
+                if (cpxd.TiLeTT <= 0m)
+                    ttApp = _ttRepo.GetByLoaiCongTrinh(loaiCT, null);
+            }
+            catch { }
+
+            var rate = ChiPhiXayDungRateCalc.TinhTyLe(
+                loaiCT,
+                null,
+                cpxd.GXDTT,
+                _duToan.DanhSachHangMuc?.Sum(h => h.TongVL + h.TongNC + h.TongMay) ?? 0m,
+                _duToan.SoBuocThietKe > 0 ? _duToan.SoBuocThietKe : 2,
+                cpxd.LaVungSauXa,
+                cpxd.LoaiCongTrinhNhaTam,
+                cpxd.TiLeCPC, cpxd.TiLeTT, cpxd.TiLeTNCTTT, cpxd.TiLeGTGT, cpxd.TiLeNhaTam,
+                cpcApp, ttApp);
+
+            foreach (var w in rate.CanhBao.Distinct())
+                list.Add(w);
+
+            return list;
+        }
+
+        /// <summary>
+        /// Đối chiếu sau xuất: so sánh Chi phí xây dựng (GXD) trên sheet
+        /// TH_ChiPhiXD / TongMucDauTu với GXD tính trong model; chênh lệch &gt; 1 đồng → cảnh báo.
+        /// Phương thức "mềm": lỗi đọc dữ liệu sẽ bỏ qua, không làm gián đoạn luồng xuất.
+        /// </summary>
+        private List<string> KiemTraDoiChieuBieuMau(ExcelWb wb)
+        {
+            var ds = new List<string>();
+            try
+            {
+                if (wb == null || _duToan == null) return ds;
+
+                Worksheet th = null, tmdt = null, duToan = null;
+                foreach (Worksheet s in wb.Sheets)
+                {
+                    string n = s.Name;
+                    if (th == null && n.StartsWith("TH_ChiPhiXD", StringComparison.OrdinalIgnoreCase)) th = s;
+                    else if (tmdt == null && n.StartsWith("TongMucDauTu", StringComparison.OrdinalIgnoreCase)) tmdt = s;
+                    else if (duToan == null && n.StartsWith("DuToan", StringComparison.OrdinalIgnoreCase)) duToan = s;
+                }
+
+                // GXD model: đa hạng mục = tổng GXD từng hạng mục; ngược lại lấy ChiPhiXD toàn dự toán
+                decimal gxdModel = _duToan.ChiPhiXD?.GXD ?? 0m;
+                if (_duToan.DanhSachHangMuc != null && _duToan.DanhSachHangMuc.Count > 1)
+                    gxdModel = _duToan.DanhSachHangMuc.Sum(h => h.ChiPhiXD?.GXD ?? 0m);
+
+                if (th != null && gxdModel > 0m)
+                {
+                    decimal gxdSheet = 0m;
+                    int lastRow = th.UsedRange.Row + th.UsedRange.Rows.Count - 1;
+                    for (int r = lastRow; r >= 6; r--)
+                    {
+                        string b = th.Cells[r, 2]?.Value2?.ToString()?.Trim() ?? "";
+                        if (b.ToUpper().Contains("SAU THUẾ"))
+                        {
+                            gxdSheet = ToDong(th.Cells[r, 5].Value2);
+                            break;
+                        }
+                    }
+                    if (gxdSheet > 0m && Math.Abs(gxdSheet - gxdModel) > 1m)
+                        ds.Add($"TH_ChiPhiXD: GXD = {gxdSheet:N0} đồng, khác GXD tính trong dự toán ({gxdModel:N0} đồng).");
+                }
+
+                if (tmdt != null && gxdModel > 0m)
+                {
+                    decimal gxdTM = 0m;
+                    int lastRow = tmdt.UsedRange.Row + tmdt.UsedRange.Rows.Count - 1;
+                    for (int r = lastRow; r >= 5; r--)
+                    {
+                        string b = tmdt.Cells[r, 2]?.Value2?.ToString()?.Trim() ?? "";
+                        if (b.ToUpper().Contains("CHI PHÍ XÂY DỰNG"))
+                        {
+                            gxdTM = ToDong(tmdt.Cells[r, 5].Value2);
+                            if (gxdTM > 0m) break;
+                        }
+                    }
+                    if (gxdTM > 0m && Math.Abs(gxdTM - gxdModel) > 1m)
+                        ds.Add($"TongMucDauTu: GXD = {gxdTM:N0} đồng, khác GXD tính trong dự toán ({gxdModel:N0} đồng).");
+                }
+            }
+            catch
+            {
+                // Không làm gián đoạn luồng xuất nếu không đọc được bảng
+            }
+            return ds;
+        }
+
+        private static decimal ToDong(object val)
+        {
+            try
+            {
+                if (val == null) return 0m;
+                if (val is double d) return (decimal)d;
+                if (val is int i) return i;
+                if (val is decimal m) return m;
+                if (val is float f) return (decimal)f;
+                if (val is long l) return l;
+                return decimal.TryParse(val.ToString().Trim(), out var r) ? r : 0m;
+            }
+            catch
+            {
+                return 0m;
+            }
+        }
+
         private void XuatExcelTongHop()
         {
             try
@@ -2875,6 +3183,19 @@ namespace AIE.ExcelAddIn.Forms
                 TinhToanChiPhiXD();
                 CapNhatGiaTriDauVao();
                 _duToan.BangKinhPhi = _model;
+
+                // Kiểm tra tính hợp lệ & cảnh báo trước khi xuất (2.5)
+                var canhBao = KiemTraHopLe();
+                if (canhBao.Count > 0)
+                {
+                    string msg = "Kiểm tra dự toán có một số điểm cần lưu ý trước khi xuất:\n\n"
+                        + string.Join("\n", canhBao.Select(x => "• " + x))
+                        + "\n\nBạn vẫn muốn tiếp tục xuất Excel?";
+                    if (MessageBox.Show(msg, "Cảnh báo trước khi xuất", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                    {
+                        return;
+                    }
+                }
 
                 // Mở hộp thoại chọn các bảng biểu cần xuất
                 using var dialog = new ChonBangXuatExcelDialog(isCheDoTMDT: LaCheDoTongMucDauTu);
@@ -2899,6 +3220,16 @@ namespace AIE.ExcelAddIn.Forms
 
                 loading.Close();
                 loading.Dispose();
+
+                // Đối chiếu số liệu giữa các sheet sau khi xuất (2.2)
+                var lech = KiemTraDoiChieuBieuMau(wb);
+                if (lech.Count > 0)
+                {
+                    MessageBox.Show(
+                        "Sau khi xuất, phát hiện chênh lệch giữa các bảng biểu:\n\n" + string.Join("\n", lech.Select(x => "• " + x)) +
+                        "\n\nBạn nên kiểm tra lại dữ liệu nguồn trước khi dùng kết quả.",
+                        "Đối chiếu bảng biểu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                }
 
                 var dsDaXuat = opts.GetDanhSachDaChon().Select(x => $"- {x}").ToList();
                 MessageBox.Show($"Đã xuất thành công các bảng biểu sang Excel:\n{string.Join("\n", dsDaXuat)}", "Xuất Excel Thành Công", MessageBoxButtons.OK, MessageBoxIcon.Information);

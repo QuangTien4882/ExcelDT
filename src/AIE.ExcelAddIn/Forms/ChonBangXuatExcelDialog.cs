@@ -108,7 +108,7 @@ namespace AIE.ExcelAddIn.Forms
 
             btnChonTatCa = new Button
             {
-                Text = "☑ Chọn tất cả",
+                Text = "📁 Trọn bộ hồ sơ",
                 AutoSize = true,
                 Height = 30,
                 BackColor = Color.White,
@@ -403,6 +403,15 @@ namespace AIE.ExcelAddIn.Forms
             tblGrp2.Controls.Add(chkCuocVC, 0, 5);
             tblGrp2.Controls.Add(chkHeSo, 0, 6);
 
+            // Ràng buộc phụ thuộc công thức: TH_ChiPhiXD tham chiếu trực tiếp đến HeSo_DieuChinh
+            chkTHCPXD.CheckedChanged += (s, e) =>
+            {
+                if (chkTHCPXD.Checked && !chkHeSo.Checked)
+                {
+                    chkHeSo.Checked = true;
+                }
+            };
+
             pnlGrp2.Controls.Add(tblGrp2);
             grpKyThuat.Controls.Add(pnlGrp2);
 
@@ -493,6 +502,9 @@ namespace AIE.ExcelAddIn.Forms
             // Bảng tổng hợp chi phí xây dựng luôn mặc định chọn
             chkTHCPXD.Checked = true;
 
+            // Bảng xác định hệ số điều chỉnh luôn mặc định chọn (hệ số ảnh hưởng trực tiếp tới kết quả TH chi phí xây dựng)
+            chkHeSo.Checked = true;
+
             // Kiểm tra xem trong Workbook hiện tại đã có các bảng kỹ thuật chưa (đã xuất từ bước 'Áp giá vào dự toán')
             bool daCoBangKyThuat = false;
             try
@@ -523,7 +535,7 @@ namespace AIE.ExcelAddIn.Forms
             chkTHNC.Checked = chonBangKyThuat;
             chkTHMay.Checked = chonBangKyThuat;
             chkCuocVC.Checked = chonBangKyThuat;
-            chkHeSo.Checked = chonBangKyThuat;
+            chkHeSo.Checked = true;
         }
 
 

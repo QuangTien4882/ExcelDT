@@ -2,6 +2,7 @@ using AIE.Core.Models;
 using AIE.Data;
 using AIE.Data.Repositories;
 using AIE.ExcelAddIn.Helpers;
+using Dapper;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -29,6 +30,9 @@ public class ThamDinhDonGiaForm : Form
     
     private readonly CultureInfo ViVn = new CultureInfo("vi-VN");
     private bool _suppressRecalc = false;
+    private System.Windows.Forms.Timer _giaMayDebounce;
+    private List<AIE.Core.Models.NhanCong> _cachedAllNC;
+    private Dictionary<string, AIE.Core.Models.DinhMucCaMay_TT37> _cachedDmMay;
 
     private AIE.Core.Enums.Vung _vungApDung;
 
@@ -36,10 +40,52 @@ public class ThamDinhDonGiaForm : Form
     {
         _vungApDung = vungApDung;
         _loadedBoId = loadedBoId;
+        _suppressRecalc = true;
+        _vatLieuList = new List<DgVatLieuModel>();
+        _nhanCongList = new List<DgNhanCongModel>();
+        _mayThiCongList = new List<DgMayThiCongModel>();
         InitializeComponent();
         FormStateHelper.Attach(this);
         PrepareData(extractedItems);
         LoadDataToGrids();
+        _suppressRecalc = false;
+        RecalculateMachineCosts();
+
+        this.Shown += (s, e) =>
+        {
+            dgvVL?.AutoFit();
+            dgvNC?.AutoFit();
+            dgvMay?.AutoFit();
+        };
+
+        if (tabControl != null)
+        {
+            tabControl.SelectedIndexChanged += (s, e) =>
+            {
+                if (tabControl.SelectedIndex == 0) dgvVL?.AutoFit();
+                else if (tabControl.SelectedIndex == 1) dgvNC?.AutoFit();
+                else if (tabControl.SelectedIndex == 2) dgvMay?.AutoFit();
+            };
+        }
+    }
+
+    /// <summary>
+    /// Constructor mở trực tiếp Bộ đơn giá đã lưu từ cơ sở dữ liệu (tính năng "Mở Bộ đơn giá").
+    /// Nạp đầy đủ 100% dữ liệu đã lưu, kể cả cước vận chuyển, giá máy, giá nhiên liệu.
+    /// </summary>
+    public ThamDinhDonGiaForm(int loadedBoId, AIE.Core.Enums.Vung vungApDung)
+    {
+        _vungApDung = vungApDung;
+        _loadedBoId = loadedBoId;
+        _suppressRecalc = true;
+        _vatLieuList = new List<DgVatLieuModel>();
+        _nhanCongList = new List<DgNhanCongModel>();
+        _mayThiCongList = new List<DgMayThiCongModel>();
+        InitializeComponent();
+        FormStateHelper.Attach(this);
+        LoadFromDatabase(loadedBoId);
+        _suppressRecalc = false;
+        RecalculateMachineCosts();
 
         this.Shown += (s, e) =>
         {
@@ -66,6 +112,7 @@ public class ThamDinhDonGiaForm : Form
         this.Size = new Size((int)(workingArea.Width * 0.9), (int)(workingArea.Height * 0.9));
         this.StartPosition = FormStartPosition.CenterScreen;
         this.MinimizeBox = true;
+        this.MaximizeBox = true;
         this.ShowInTaskbar = true;
         this.Font = new Font("Be Vietnam Pro", 9.5f);
 
@@ -369,7 +416,18 @@ public class ThamDinhDonGiaForm : Form
         var lbl = new Label { Text = labelText, AutoSize = true, Location = new Point(x, 20), Font = new Font("Be Vietnam Pro", 9f) };
         int lblWidth = lbl.PreferredWidth;
         var txt = new TextBox { Text = defaultValue, Width = 80, Location = new Point(x + lblWidth + 5, 17), Font = new Font("Be Vietnam Pro", 9f), TextAlign = HorizontalAlignment.Right };
-        txt.TextChanged += (s, e) => RecalculateMachineCosts();
+
+        if (_giaMayDebounce == null)
+        {
+            _giaMayDebounce = new System.Windows.Forms.Timer { Interval = 500 };
+            _giaMayDebounce.Tick += (s, e) =>
+            {
+                _giaMayDebounce.Stop();
+                RecalculateMachineCosts();
+            };
+        }
+
+        txt.TextChanged += (s, e) => { _giaMayDebounce.Stop(); _giaMayDebounce.Start(); };
         parent.Controls.Add(lbl);
         parent.Controls.Add(txt);
         x += lblWidth + 5 + txt.Width + 20;
@@ -405,37 +463,226 @@ public class ThamDinhDonGiaForm : Form
         return dgv;
     }
 
-    private void PrepareData(List<VatTuGiaModel> extractedItems)
+    private void LoadFromDatabase(int boId)
     {
         var db = new DatabaseManager();
-        var dmMayRepo = new DinhMucCaMayRepository(db.Context);
+        var repo = new BoDonGiaRepository(db.Context);
+        var vlRepo = new VatLieuRepository(db.Context);
+        var ncRepo = new NhanCongRepository(db.Context);
         var mayRepo = new MayThiCongRepository(db.Context);
-        var ncRepo = new AIE.Data.Repositories.NhanCongRepository(db.Context);
+        var dmMayRepo = new DinhMucCaMayRepository(db.Context);
 
         _vatLieuList = new List<DgVatLieuModel>();
         _nhanCongList = new List<DgNhanCongModel>();
         _mayThiCongList = new List<DgMayThiCongModel>();
 
+        // 1. Nạp thông tin chung & giá nhiên liệu trước
+        var boInfo = repo.GetById(boId);
+        if (boInfo != null)
+        {
+            txtTenBoDonGia.Text = !string.IsNullOrWhiteSpace(boInfo.TenBo) ? boInfo.TenBo : $"Bộ đơn giá #{boId}";
+            if (boInfo.GiaXang > 0) txtGiaXang.Text = boInfo.GiaXang.ToString("0.####");
+            if (boInfo.GiaDiezel > 0) txtGiaDiezel.Text = boInfo.GiaDiezel.ToString("0.####");
+            if (boInfo.GiaDien > 0) txtGiaDien.Text = boInfo.GiaDien.ToString("0.####");
+        }
+
+        using var conn = db.Context.GetConnection();
+
+        // 2. Nạp Vật liệu (loại trừ sạch vật liệu khác)
+        var dsVL = repo.GetGiaVL(boId);
+        foreach (var vl in dsVL)
+        {
+            if (vl.MaVL == "VL_KHAC" || vl.MaVL.StartsWith("VLK")) continue;
+            var master = vlRepo.GetByMa(vl.MaVL);
+            string name = master?.TenVL ?? conn.QueryFirstOrDefault<string>("SELECT TenHaoPhi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = vl.MaVL }) ?? vl.MaVL;
+            string donVi = master?.DonVi ?? conn.QueryFirstOrDefault<string>("SELECT DonVi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = vl.MaVL }) ?? "";
+            if (donVi == "%" || name.ToLower().Contains("vật liệu khác")) continue;
+
+            decimal giaGoc = vl.GiaGoc;
+            if (giaGoc == 0 && vl.GiaHienTruong > 0) giaGoc = vl.GiaHienTruong;
+
+            _vatLieuList.Add(new DgVatLieuModel
+            {
+                MaHieu = vl.MaVL,
+                Ten = name,
+                DonVi = donVi,
+                GiaGoc = giaGoc,
+                ChiPhiBocXep = vl.ChiPhiBocXep,
+                CuocVCOTo = vl.CuocVCOTo,
+                CuocVCBo = vl.CuocVCBo
+            });
+        }
+
+        // 3. Nạp Nhân công
+        var dsNC = repo.GetGiaNC(boId);
+        foreach (var nc in dsNC)
+        {
+            if (nc.MaNC.Contains("NC_KHAC")) continue;
+            var master = ncRepo.GetByMa(nc.MaNC);
+            string name = master?.TenNC ?? conn.QueryFirstOrDefault<string>("SELECT TenHaoPhi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = nc.MaNC }) ?? nc.MaNC;
+            string donVi = master?.DonVi ?? conn.QueryFirstOrDefault<string>("SELECT DonVi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = nc.MaNC }) ?? "công";
+            if (donVi == "%" || name.ToLower().Contains("nhân công khác")) continue;
+
+            int nhom = master?.Nhom ?? 1;
+            _nhanCongList.Add(new DgNhanCongModel
+            {
+                MaHieu = nc.MaNC,
+                Ten = name,
+                DonVi = donVi,
+                NhomNhanCong = nhom,
+                GiaHienTruong = nc.DonGia
+            });
+        }
+
+        // 4. Nạp Máy thi công
+        var dsMay = repo.GetGiaMay(boId);
+        var allNC = ncRepo.GetAll();
+        foreach (var m in dsMay)
+        {
+            if (m.MaMay == "M7016") continue;
+            var master = mayRepo.GetByMa(m.MaMay);
+            string name = master?.TenMay ?? conn.QueryFirstOrDefault<string>("SELECT TenHaoPhi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = m.MaMay }) ?? m.MaMay;
+            string donVi = master?.DonVi ?? conn.QueryFirstOrDefault<string>("SELECT DonVi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = m.MaMay }) ?? "ca";
+            if (donVi == "%" || name.ToLower().Contains("máy khác")) continue;
+
+            var dmMay = dmMayRepo.GetByMaMay(m.MaMay);
+            var mayM = new DgMayThiCongModel
+            {
+                MaHieu = m.MaMay,
+                Ten = name,
+                DonVi = donVi,
+                DonGiaSaved = m.DonGia
+            };
+
+            if (dmMay != null)
+            {
+                mayM.SoCaNam = dmMay.SoCaNam > 0 ? dmMay.SoCaNam : 250;
+                mayM.NguyenGia = dmMay.NguyenGia;
+                mayM.TyLeKhauHao = dmMay.KhauHao;
+                mayM.TyLeSuaChua = dmMay.SuaChua;
+                mayM.TyLeKhac = dmMay.ChiPhiKhac;
+                mayM.NhomNhanCong = dmMay.NhomNhanCong;
+                mayM.SoLuongNhanCong = dmMay.SoLuongNhanCong;
+                mayM.HeSoNhienLieuPhu = dmMay.HeSoNhienLieuPhu;
+                mayM.NhanCongString = dmMay.NhanCongString;
+
+                decimal g_th = dmMay.NguyenGia >= 30000000m ? dmMay.NguyenGia * 0.1m : 0m;
+                mayM.KhauHao = ((dmMay.NguyenGia - g_th) * dmMay.KhauHao / 100m) / mayM.SoCaNam;
+                mayM.SuaChua = (dmMay.NguyenGia * dmMay.SuaChua / 100m) / mayM.SoCaNam;
+                mayM.ChiPhiKhac = (dmMay.NguyenGia * dmMay.ChiPhiKhac / 100m) / mayM.SoCaNam;
+
+                mayM.DinhMucXang = dmMay.DinhMucXang;
+                mayM.DinhMucDiezel = dmMay.DinhMucDiezel;
+                mayM.DinhMucDien = dmMay.DinhMucDien;
+
+                mayM.LuongTho = 0;
+                var tpNC = dmMay.GetThanhPhanNhanCong();
+                foreach (var tp in tpNC)
+                {
+                    var ncMay = allNC.FirstOrDefault(n => n.LoaiNhanCong == AIE.Core.Enums.LoaiNhanCong.VanHanhMay && n.Nhom == tp.Nhom);
+                    if (ncMay != null) mayM.LuongTho += ncMay.GetDonGia(_vungApDung) * tp.SoLuong;
+                }
+            }
+
+            _mayThiCongList.Add(mayM);
+        }
+
+        dgvVL.DataSource = new BindingSource { DataSource = _vatLieuList };
+        dgvNC.DataSource = new BindingSource { DataSource = _nhanCongList };
+        dgvMay.DataSource = new BindingSource { DataSource = _mayThiCongList };
+
+        RecalculateMachineCosts();
+    }
+
+    private void PrepareData(List<VatTuGiaModel> extractedItems)
+    {
+        _vatLieuList = new List<DgVatLieuModel>();
+        _nhanCongList = new List<DgNhanCongModel>();
+        _mayThiCongList = new List<DgMayThiCongModel>();
+
+        var db = new DatabaseManager();
+        var dmMayRepo = new DinhMucCaMayRepository(db.Context);
+        var mayRepo = new MayThiCongRepository(db.Context);
+        var ncRepo = new AIE.Data.Repositories.NhanCongRepository(db.Context);
+        var bdgRepo = new AIE.Data.Repositories.BoDonGiaRepository(db.Context);
+
+        if (_loadedBoId.HasValue && _loadedBoId.Value > 0)
+        {
+            try
+            {
+                var boInfo = bdgRepo.GetById(_loadedBoId.Value);
+                if (boInfo != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(boInfo.TenBo))
+                        txtTenBoDonGia.Text = boInfo.TenBo;
+                    if (boInfo.GiaXang > 0) txtGiaXang.Text = boInfo.GiaXang.ToString("0.####");
+                    if (boInfo.GiaDiezel > 0) txtGiaDiezel.Text = boInfo.GiaDiezel.ToString("0.####");
+                    if (boInfo.GiaDien > 0) txtGiaDien.Text = boInfo.GiaDien.ToString("0.####");
+                }
+            }
+            catch { }
+        }
+
+        Dictionary<string, BoDonGiaRepository.GiaVatLieuBo> giaVLMap = null;
+        Dictionary<string, decimal> giaNCMap = null;
+        try
+        {
+            if (_loadedBoId.HasValue && _loadedBoId.Value > 0)
+            {
+                giaVLMap = bdgRepo.GetGiaVL(_loadedBoId.Value).ToDictionary(x => x.MaVL, x => x);
+                giaNCMap = bdgRepo.GetGiaNC(_loadedBoId.Value).ToDictionary(x => x.MaNC, x => x.DonGia);
+            }
+        }
+        catch { }
+
         foreach (var item in extractedItems)
         {
             if (item.LoaiHP == AIE.Core.Enums.LoaiHaoPhi.VL)
             {
+                string tenVl = (item.TenVatTu ?? "").ToLower();
+                string dv = (item.DonVi ?? "").Trim();
+                if (dv == "%" || tenVl.Contains("vật liệu khác") || item.MaHieu == "VL_KHAC" || item.MaHieu.StartsWith("VLK"))
+                    continue;
+
+                decimal giaGoc = item.GiaChuan ?? 0;
+                decimal bocXep = 0;
+                decimal vcOTo = 0;
+                decimal vcBo = 0;
+
+                if (giaVLMap != null && giaVLMap.TryGetValue(item.MaHieu, out var savedVl))
+                {
+                    giaGoc = savedVl.GiaGoc;
+                    bocXep = savedVl.ChiPhiBocXep;
+                    vcOTo = savedVl.CuocVCOTo;
+                    vcBo = savedVl.CuocVCBo;
+                }
+
                 _vatLieuList.Add(new DgVatLieuModel
                 {
                     MaHieu = item.MaHieu,
                     Ten = item.TenVatTu,
                     DonVi = item.DonVi,
                     KhoiLuong = item.KhoiLuong,
-                    GiaGoc = 0,
-                    ChiPhiBocXep = 0,
-                    CuocVCOTo = 0,
-                    CuocVCBo = 0
+                    GiaGoc = giaGoc,
+                    ChiPhiBocXep = bocXep,
+                    CuocVCOTo = vcOTo,
+                    CuocVCBo = vcBo
                 });
             }
             else if (item.LoaiHP == AIE.Core.Enums.LoaiHaoPhi.NC)
             {
+                string tenNC = (item.TenVatTu ?? "").ToLower();
+                string dv = (item.DonVi ?? "").Trim();
+                if (dv == "%" || tenNC.Contains("nhân công khác"))
+                    continue;
+
                 var ncDb = ncRepo.GetAll().FirstOrDefault(x => x.MaNC == item.MaHieu);
                 decimal giaNC = item.GiaChuan ?? 0;
+
+                if (giaNCMap != null && giaNCMap.TryGetValue(item.MaHieu, out var savedNCPrice) && savedNCPrice > 0)
+                {
+                    giaNC = savedNCPrice;
+                }
                 
                 int nhomNC = 1;
                 if (ncDb != null)
@@ -471,7 +718,10 @@ public class ThamDinhDonGiaForm : Form
             }
             else if (item.LoaiHP == AIE.Core.Enums.LoaiHaoPhi.MAY)
             {
-                if (item.MaHieu == "M7016" || (item.TenVatTu ?? "").Contains("Máy khác")) continue;
+                string tenMay = (item.TenVatTu ?? "").ToLower();
+                string dv = (item.DonVi ?? "").Trim();
+                if (dv == "%" || item.MaHieu == "M7016" || tenMay.Contains("máy khác"))
+                    continue;
 
                 var dmMay = dmMayRepo.GetByMaMay(item.MaHieu);
                 var mayM = new DgMayThiCongModel
@@ -519,6 +769,25 @@ public class ThamDinhDonGiaForm : Form
 
     private void LoadDataToGrids()
     {
+        if (_loadedBoId.HasValue && _loadedBoId.Value > 0)
+        {
+            try
+            {
+                var db = new DatabaseManager();
+                var repo = new BoDonGiaRepository(db.Context);
+                var boInfo = repo.GetById(_loadedBoId.Value);
+                if (boInfo != null)
+                {
+                    if (!string.IsNullOrWhiteSpace(boInfo.TenBo))
+                        txtTenBoDonGia.Text = boInfo.TenBo;
+                    if (boInfo.GiaXang > 0) txtGiaXang.Text = boInfo.GiaXang.ToString("0.####");
+                    if (boInfo.GiaDiezel > 0) txtGiaDiezel.Text = boInfo.GiaDiezel.ToString("0.####");
+                    if (boInfo.GiaDien > 0) txtGiaDien.Text = boInfo.GiaDien.ToString("0.####");
+                }
+            }
+            catch { }
+        }
+
         if (string.IsNullOrWhiteSpace(txtGiaXang.Text) && string.IsNullOrWhiteSpace(txtGiaDiezel.Text) && string.IsNullOrWhiteSpace(txtGiaDien.Text))
         {
             try
@@ -539,6 +808,10 @@ public class ThamDinhDonGiaForm : Form
             }
             catch { }
         }
+
+        if (string.IsNullOrWhiteSpace(txtGiaXang.Text)) txtGiaXang.Text = "22150";
+        if (string.IsNullOrWhiteSpace(txtGiaDiezel.Text)) txtGiaDiezel.Text = "28090";
+        if (string.IsNullOrWhiteSpace(txtGiaDien.Text)) txtGiaDien.Text = "2204";
 
         dgvVL.DataSource = new BindingSource { DataSource = _vatLieuList };
         dgvNC.DataSource = new BindingSource { DataSource = _nhanCongList };
@@ -861,6 +1134,7 @@ public class ThamDinhDonGiaForm : Form
     private void RecalculateMachineCosts()
     {
         if (_suppressRecalc) return;
+        if (_mayThiCongList == null || _vatLieuList == null || _nhanCongList == null) return;
         
         decimal.TryParse(txtGiaXang.Text, out decimal gx);
         decimal.TryParse(txtGiaDiezel.Text, out decimal gdz);
@@ -868,16 +1142,22 @@ public class ThamDinhDonGiaForm : Form
         
         _suppressRecalc = true;
         
-        var db = new DatabaseManager();
-        var ncRepo = new NhanCongRepository(db.Context);
-        var dmMayRepo = new DinhMucCaMayRepository(db.Context);
-        var allNC = ncRepo.GetAll();
+        if (_cachedAllNC == null || _cachedDmMay == null)
+        {
+            var db = new DatabaseManager();
+            var ncRepo = new NhanCongRepository(db.Context);
+            var dmMayRepo = new DinhMucCaMayRepository(db.Context);
+            _cachedAllNC = ncRepo.GetAll().ToList();
+            _cachedDmMay = dmMayRepo.GetAll().ToDictionary(x => x.MaMay, x => x);
+        }
+        var allNC = _cachedAllNC;
+        var dmMayCache = _cachedDmMay;
         
         foreach (var m in _mayThiCongList)
         {
             m.NhienLieu = (m.DinhMucXang * gx + m.DinhMucDiezel * gdz + m.DinhMucDien * gdi) * m.HeSoNhienLieuPhu;
             
-            var dmMay = dmMayRepo.GetByMaMay(m.MaHieu);
+            dmMayCache.TryGetValue(m.MaHieu ?? "", out var dmMay);
             if (dmMay != null)
             {
                 m.LuongTho = 0;
@@ -897,6 +1177,8 @@ public class ThamDinhDonGiaForm : Form
 
     private void CapNhatLaiChiPhiBocXepTheoGiaMay()
     {
+        if (_suppressRecalc) return;
+        if (_vatLieuList == null || _mayThiCongList == null || _nhanCongList == null) return;
         bool hasChanges = false;
         foreach (var vl in _vatLieuList)
         {
@@ -1097,12 +1379,15 @@ public class ThamDinhDonGiaForm : Form
                 {
                     if (giaVL.TryGetValue(vl.MaHieu, out var gia))
                     {
-                        if (vl.GiaGoc != gia.GiaGoc || vl.CuocVC != gia.CuocVC)
+                        vl.GiaGoc = gia.GiaGoc;
+                        vl.ChiPhiBocXep = gia.ChiPhiBocXep;
+                        vl.CuocVCOTo = gia.CuocVCOTo;
+                        vl.CuocVCBo = gia.CuocVCBo;
+                        if (vl.ChiPhiBocXep == 0 && vl.CuocVCOTo == 0 && vl.CuocVCBo == 0 && gia.CuocVC > 0)
                         {
-                            vl.GiaGoc = gia.GiaGoc;
-                            vl.CuocVC = gia.CuocVC;
-                            updatedVl++;
+                            vl.CuocVCOTo = gia.CuocVC;
                         }
+                        updatedVl++;
                     }
                 }
 
@@ -1127,8 +1412,17 @@ public class ThamDinhDonGiaForm : Form
                     txtGiaXang.Text = boInfo.GiaXang > 0 ? boInfo.GiaXang.ToString("0.####") : "";
                     txtGiaDiezel.Text = boInfo.GiaDiezel > 0 ? boInfo.GiaDiezel.ToString("0.####") : "";
                     txtGiaDien.Text = boInfo.GiaDien > 0 ? boInfo.GiaDien.ToString("0.####") : "";
-                    updatedMay = _mayThiCongList.Count; // All machines will be recalculated
                 }
+
+                var giaMay = repo.GetGiaMay(boId).ToDictionary(x => x.MaMay, x => x);
+                foreach (var m in _mayThiCongList)
+                {
+                    if (giaMay.TryGetValue(m.MaHieu, out var gm))
+                    {
+                        m.DonGiaSaved = gm.DonGia;
+                    }
+                }
+                updatedMay = _mayThiCongList.Count;
 
                 dgvVL.Invalidate();
                 dgvNC.Invalidate();
@@ -1198,6 +1492,7 @@ public class ThamDinhDonGiaForm : Form
 
             this.SavedBoDonGiaId = id;
             this.DialogResult = DialogResult.OK;
+            MessageBox.Show($"Đã lưu thành công bộ đơn giá: \"{txtTenBoDonGia.Text}\"!", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
             this.Close();
         }
         catch (Exception ex)
@@ -1216,6 +1511,7 @@ public class ThamDinhDonGiaForm : Form
         txtGiaXang.Text = xang > 0 ? xang.ToString("0.####") : "";
         txtGiaDiezel.Text = diezel > 0 ? diezel.ToString("0.####") : "";
         txtGiaDien.Text = dien > 0 ? dien.ToString("0.####") : "";
+        RecalculateMachineCosts();
     }
     private void DgvMay_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
     {
@@ -1317,7 +1613,15 @@ public class DgMayThiCongModel
     public decimal ChiPhiKhac { get; set; }
     public decimal LuongTho { get; set; }
     public decimal NhienLieu { get; set; }
-    public decimal GiaHienTruong => KhauHao + SuaChua + ChiPhiKhac + LuongTho + NhienLieu;
+    public decimal DonGiaSaved { get; set; }
+    public decimal GiaHienTruong
+    {
+        get
+        {
+            decimal sum = KhauHao + SuaChua + ChiPhiKhac + LuongTho + NhienLieu;
+            return sum > 0 ? sum : DonGiaSaved;
+        }
+    }
     
     // Internal TT37 factors
     public decimal SoCaNam { get; set; } = 250;

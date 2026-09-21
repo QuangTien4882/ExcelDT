@@ -111,12 +111,14 @@ public class ChiPhiXayDungTests
     {
         // Công trình theo tuyến: <=15 tỷ: 2.2%, <=100: 2.0%, <=500: 1.9%, <=1000: 1.8%, >1000: 1.7%
         Assert.Equal(2.2m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng theo tuyến", 10m));
+        Assert.Equal(2.2m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng theo tuyến", 15m));
         Assert.Equal(2.0m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng theo tuyến", 100m));
         Assert.Equal(1.95m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng theo tuyến", 300m));
         Assert.Equal(1.7m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng theo tuyến", 1500m));
 
         // Công trình còn lại: <=15 tỷ: 1.1%, <=100: 1.0%, <=500: 0.95%, <=1000: 0.9%, >1000: 0.85%
         Assert.Equal(1.1m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng còn lại", 10m));
+        Assert.Equal(1.1m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng còn lại", 15m));
         Assert.Equal(1.0m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng còn lại", 100m));
         Assert.Equal(0.975m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng còn lại", 300m));
         Assert.Equal(0.85m, AIE.Core.Services.Shared.InterpolationHelper.NoiSuyTiLeNhaTam("Công trình xây dựng còn lại", 1200m));

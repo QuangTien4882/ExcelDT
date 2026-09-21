@@ -8,11 +8,13 @@ using ExcelDna.Integration;
 using ExcelDna.Integration.CustomUI;
 using Microsoft.Office.Interop.Excel;
 using AIE.Core.Models;
+using AIE.Core.Services.LapDuToan;
 using AIE.Data;
 using AIE.Data.ImportExport;
 using AIE.Data.Repositories;
 using AIE.ExcelAddIn.Forms;
 using AIE.ExcelAddIn.Helpers;
+using AIE.ExcelAddIn.Services;
 using Dapper;
 
 namespace AIE.ExcelAddIn.Ribbon
@@ -29,15 +31,111 @@ namespace AIE.ExcelAddIn.Ribbon
     [ComVisible(true)]
     public class AieRibbon : ExcelRibbon
     {
-        /// <summary>Dự toán đang làm việc (in-memory). Dùng chung giữa các form.</summary>
-        public static AIE.Core.Models.DuToan CurrentDuToan { get; set; }
-        /// <summary>Đường dẫn file .dt hiện tại (null nếu chưa lưu)</summary>
-        public static string CurrentFilePath { get; set; }
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, AIE.Core.Models.DuToan> _duToanByWb = new System.Collections.Concurrent.ConcurrentDictionary<string, AIE.Core.Models.DuToan>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> _filePathByWb = new System.Collections.Concurrent.ConcurrentDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TongHopKinhPhiForm> _tongHopForms = new System.Collections.Concurrent.ConcurrentDictionary<string, TongHopKinhPhiForm>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, TinhGiaHienTruongForm> _tinhGiaForms = new System.Collections.Concurrent.ConcurrentDictionary<string, TinhGiaHienTruongForm>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ThamDinhDonGiaForm> _thamDinhForms = new System.Collections.Concurrent.ConcurrentDictionary<string, ThamDinhDonGiaForm>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, XacNhanSaiKhacForm> _xacNhanSaiKhacForms = new System.Collections.Concurrent.ConcurrentDictionary<string, XacNhanSaiKhacForm>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.List<KetQuaCongTacThamDinh>> _lastThamDinhResultsByWb = new System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Generic.List<KetQuaCongTacThamDinh>>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, ThamDinhConfig> _lastThamDinhConfigByWb = new System.Collections.Concurrent.ConcurrentDictionary<string, ThamDinhConfig>(StringComparer.OrdinalIgnoreCase);
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, int?> _lastBoDonGiaIdByWb = new System.Collections.Concurrent.ConcurrentDictionary<string, int?>(StringComparer.OrdinalIgnoreCase);
 
-        // Singleton references: tránh mở nhiều instance cùng lúc (Phương án B: Modeless)
-        private static TongHopKinhPhiForm _tongHopForm;
-        private static TinhGiaHienTruongForm _tinhGiaForm;
-        private static ThamDinhDonGiaForm _thamDinhForm;
+        public static string GetActiveWorkbookKey()
+        {
+            try
+            {
+                var app = (Application)ExcelDnaUtil.Application;
+                var wb = app?.ActiveWorkbook;
+                if (wb != null && !string.IsNullOrEmpty(wb.Name))
+                {
+                    return wb.Name;
+                }
+            }
+            catch { }
+            return "__default__";
+        }
+
+        /// <summary>Dự toán đang làm việc (in-memory) theo Workbook hiện tại.</summary>
+        public static AIE.Core.Models.DuToan CurrentDuToan
+        {
+            get
+            {
+                string key = GetActiveWorkbookKey();
+                _duToanByWb.TryGetValue(key, out var dt);
+                return dt;
+            }
+            set
+            {
+                string key = GetActiveWorkbookKey();
+                if (value == null)
+                    _duToanByWb.TryRemove(key, out _);
+                else
+                    _duToanByWb[key] = value;
+            }
+        }
+
+        /// <summary>Đường dẫn file .dt hiện tại theo Workbook hiện tại (null nếu chưa lưu)</summary>
+        public static string CurrentFilePath
+        {
+            get
+            {
+                string key = GetActiveWorkbookKey();
+                _filePathByWb.TryGetValue(key, out var path);
+                return path;
+            }
+            set
+            {
+                string key = GetActiveWorkbookKey();
+                if (value == null)
+                    _filePathByWb.TryRemove(key, out _);
+                else
+                    _filePathByWb[key] = value;
+            }
+        }
+
+        // Singleton references theo từng Workbook: tránh mở nhiều instance cùng lúc cho cùng một Workbook
+        private static TongHopKinhPhiForm _tongHopForm
+        {
+            get { _tongHopForms.TryGetValue(GetActiveWorkbookKey(), out var f); return f; }
+            set { string k = GetActiveWorkbookKey(); if (value == null) _tongHopForms.TryRemove(k, out _); else _tongHopForms[k] = value; }
+        }
+
+        private static TinhGiaHienTruongForm _tinhGiaForm
+        {
+            get { _tinhGiaForms.TryGetValue(GetActiveWorkbookKey(), out var f); return f; }
+            set { string k = GetActiveWorkbookKey(); if (value == null) _tinhGiaForms.TryRemove(k, out _); else _tinhGiaForms[k] = value; }
+        }
+
+        private static ThamDinhDonGiaForm _thamDinhForm
+        {
+            get { _thamDinhForms.TryGetValue(GetActiveWorkbookKey(), out var f); return f; }
+            set { string k = GetActiveWorkbookKey(); if (value == null) _thamDinhForms.TryRemove(k, out _); else _thamDinhForms[k] = value; }
+        }
+
+        private static XacNhanSaiKhacForm _xacNhanSaiKhacForm
+        {
+            get { _xacNhanSaiKhacForms.TryGetValue(GetActiveWorkbookKey(), out var f); return f; }
+            set { string k = GetActiveWorkbookKey(); if (value == null) _xacNhanSaiKhacForms.TryRemove(k, out _); else _xacNhanSaiKhacForms[k] = value; }
+        }
+
+        private static System.Collections.Generic.List<KetQuaCongTacThamDinh> _lastThamDinhResults
+        {
+            get { _lastThamDinhResultsByWb.TryGetValue(GetActiveWorkbookKey(), out var r); return r; }
+            set { string k = GetActiveWorkbookKey(); if (value == null) _lastThamDinhResultsByWb.TryRemove(k, out _); else _lastThamDinhResultsByWb[k] = value; }
+        }
+
+        private static ThamDinhConfig _lastThamDinhConfig
+        {
+            get { _lastThamDinhConfigByWb.TryGetValue(GetActiveWorkbookKey(), out var c); return c; }
+            set { string k = GetActiveWorkbookKey(); if (value == null) _lastThamDinhConfigByWb.TryRemove(k, out _); else _lastThamDinhConfigByWb[k] = value; }
+        }
+
+        private static int? _lastBoDonGiaId
+        {
+            get { _lastBoDonGiaIdByWb.TryGetValue(GetActiveWorkbookKey(), out var id); return id; }
+            set { string k = GetActiveWorkbookKey(); if (!value.HasValue) _lastBoDonGiaIdByWb.TryRemove(k, out _); else _lastBoDonGiaIdByWb[k] = value; }
+        }
         public override string GetCustomUI(string RibbonID)
         {
             return @"
@@ -56,22 +154,25 @@ namespace AIE.ExcelAddIn.Ribbon
                     </group>
 
                     <group id='groupThamDinh' label='Thẩm định dự toán'>
-                      <button id='btnDonGiaThamDinh' label='Đơn giá thẩm định' screentip='Lập Bộ Đơn giá thẩm định' size='normal' showImage='false' onAction='OnDonGiaThamDinhClicked' />
-                      <button id='btnMoDonGiaThamDinh' label='Mở Bộ Đơn giá' screentip='Mở lại Bộ Đơn giá Thẩm định' size='normal' showImage='false' onAction='OnMoDonGiaThamDinhClicked' />
+                      <button id='btnDonGiaThamDinh' label='Kiểm tra ĐM, ĐG' screentip='Kiểm tra Định mức, Đơn giá dự toán' size='normal' showImage='false' onAction='OnDonGiaThamDinhClicked' />
+                      <button id='btnMoDonGiaThamDinh' label='Đơn giá TĐ' screentip='Mở Bộ Đơn giá Thẩm định' size='normal' showImage='false' onAction='OnMoDonGiaThamDinhClicked' />
                       <button id='btnKiemTra' label='Kiểm tra' screentip='Kiểm tra dự toán' size='normal' showImage='false' onAction='OnKiemTraClicked' />
-                      <button id='btnBaoCaoTD' label='Xuất Báo cáo' screentip='Xuất Báo cáo' size='normal' showImage='false' onAction='OnBaoCaoTDClicked' />
+                      <button id='btnBaoCaoTD' label='Kết quả thẩm định' screentip='Kết quả thẩm định dự toán (Bảng 3.8 TT 36 &amp; THDT TT 38)' size='normal' showImage='false' onAction='OnBaoCaoTDClicked' />
                     </group>
 
                     <group id='groupLapDuToan' label='Lập dự toán'>
                       <button id='btnTaoDuToanMoi' label='Tạo Dự toán mới' screentip='Tạo Dự toán mới' size='normal' showImage='false' onAction='OnTaoDuToanMoiClicked' />
+                      <button id='btnDongBoExcel' label='Đồng bộ từ Excel' screentip='Đồng bộ khối lượng, công tác từ bảng tính Excel vào mô hình dự toán (Phím tắt: Ctrl+Shift+S)' size='normal' showImage='false' onAction='OnDongBoExcelClicked' />
                       <button id='btnGoiDonGia' label='Gọi Đơn giá' screentip='Gọi Đơn giá' size='normal' showImage='false' onAction='OnGoiDonGiaClicked' />
                       <button id='btnTinhGiaHienTruong' label='Giá VL, NC, MTC' screentip='Giá VL, NC, MTC' size='normal' showImage='false' onAction='OnTinhGiaHienTruongClicked' />
-                      <button id='btnTongHopKinhPhi' label='Tổng hợp kinh phí' screentip='Tổng hợp Chi phí xây dựng, Dự toán &amp; Tổng mức đầu tư' size='normal' showImage='false' onAction='OnTongHopKinhPhiClicked' />
+                      <button id='btnTongHopKinhPhi' label='Tổng hợp kinh phí' screentip='Tổng hợp Chi phí xây dựng, Dự toán &amp; Tổng mức đầu tư (Phím tắt: Ctrl+Shift+K)' size='normal' showImage='false' onAction='OnTongHopKinhPhiClicked' />
                     </group>
 
                     <group id='groupFile' label='File Dự toán'>
                       <button id='btnLuuDuToan' label='Lưu Dự toán' screentip='Lưu Dự toán (.dt)' size='normal' showImage='false' onAction='OnLuuDuToanClicked' />
                       <button id='btnMoDuToan' label='Mở Dự toán' screentip='Mở Dự toán (.dt)' size='normal' showImage='false' onAction='OnMoDuToanClicked' />
+                      <button id='btnKhoiPhuc' label='Khôi phục lưu gần nhất' screentip='Khôi phục .dt từ bản lưu .bak gần nhất' size='normal' showImage='false' onAction='OnKhoiPhucBamLuuClicked' />
+                      <button id='btnPhucHoiAutoSave' label='Phục hồi tự động' screentip='Kiểm tra và phục hồi từ bản sao lưu tự động (Auto-Save)' size='normal' showImage='false' onAction='OnPhucHoiAutoSaveClicked' />
                     </group>
 
                   </tab>
@@ -187,42 +288,64 @@ namespace AIE.ExcelAddIn.Ribbon
                     sheetNames.Add(sheet.Name);
                 }
 
-                var form = new ThamDinhConfigForm(sheetNames);
+                var form = new ThamDinhConfigForm(sheetNames, _lastBoDonGiaId);
                 if (form.ShowDialog() == DialogResult.OK)
                 {
                     var config = form.ResultConfig;
                     
-                    // 1. Đọc dữ liệu
+                    var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang đọc và kiểm tra dự toán...");
+                    loading.Show();
+                    System.Windows.Forms.Application.DoEvents();
+
+                    // 1. Đọc dữ liệu công tác từ sheet
                     var reader = new AIE.ExcelAddIn.Services.DuToanExcelReader();
                     var danhSachCongTac = reader.Read(config);
 
                     if (danhSachCongTac.Count == 0)
                     {
-                        MessageBox.Show("Không tìm thấy dữ liệu công tác nào. Vui lòng Kiểm tra lại cấu hình cột.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        loading.Close();
+                        loading.Dispose();
+                        MessageBox.Show("Không tìm thấy dữ liệu công tác nào. Vui lòng kiểm tra lại cấu hình cột.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
 
-                    // 2. Thẩm định
-                    var db = new DatabaseManager(); // Đảm bảo đã init db
+                    // 2. Thẩm tra theo Định mức chuẩn và Bộ đơn giá đã chọn (nếu có)
+                    var db = new DatabaseManager();
                     var repo = new AIE.Data.Repositories.CongTacRepository(db.Context);
                     var vlRepo = new AIE.Data.Repositories.VatLieuRepository(db.Context);
                     var ncRepo = new AIE.Data.Repositories.NhanCongRepository(db.Context);
                     var mayRepo = new AIE.Data.Repositories.MayThiCongRepository(db.Context);
                     var engine = new AIE.ExcelAddIn.Services.ThamDinhEngine(repo, vlRepo, ncRepo, mayRepo);
                     
-                    var ketQua = engine.KiemTra(danhSachCongTac, form.SelectedBoDonGiaId);
+                    var ketQua = engine.KiemTra(danhSachCongTac, form.SelectedBoDonGiaId, config.Vung);
 
-                    // 3. Xuất kết quả (gộp Định mức + Đơn giá + Thành tiền vào 1 sheet)
+                    // 3. Xuất kết quả kiểm tra trực tiếp vào sheet KQ_ThamDinh
                     var writer = new AIE.ExcelAddIn.Services.ThamDinhExcelWriter();
-                    writer.ExportResult(config, ketQua);
-                    
-                    int soLoi = ketQua.Sum(x => x.DanhSachSaiLech.Count(s => !string.IsNullOrEmpty(s.LoaiLoi)));
-                    MessageBox.Show($"Thẩm định hoàn tất!\nĐã Kiểm tra: {ketQua.Count} công tác.\nPhát hiện: {soLoi} sai lệch.\nKết quả đã được xuất ra sheet KQ_ThamDinh.", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    writer.ExportResult(config, ketQua, form.SelectedBoDonGiaId);
+
+                    loading.Close();
+                    loading.Dispose();
+
+                    // Lưu trạng thái phiên làm việc cho Xuất Báo cáo
+                    _lastThamDinhConfig = config;
+                    _lastBoDonGiaId = form.SelectedBoDonGiaId;
+                    _lastThamDinhResults = ketQua;
+
+                    int soLoi = ketQua?.Sum(x => x.DanhSachSaiLech?.Count(s => !string.IsNullOrEmpty(s.LoaiLoi)) ?? 0) ?? 0;
+                    MessageBox.Show(
+                        $"Thẩm định hoàn tất!\n\n" +
+                        $"• Đã kiểm tra: {ketQua.Count} công tác\n" +
+                        $"• Phát hiện: {soLoi} sai lệch\n" +
+                        $"• Kết quả chi tiết đã được xuất ra sheet 'KQ_ThamDinh'.\n\n" +
+                        $"Bạn có thể nhấn nút 'Xuất Báo cáo' để tạo Hồ sơ Báo cáo Thẩm định đầy đủ theo Thông tư 36/2026/TT-BXD.",
+                        "AIE Dự Toán - Thẩm Định Hoàn Tất",
+                        MessageBoxButtons.OK,
+                        MessageBoxIcon.Information);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi khi Kiểm tra thẩm định: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Lỗi khi kiểm tra thẩm định: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -238,30 +361,40 @@ namespace AIE.ExcelAddIn.Ribbon
                     return;
                 }
 
+                if (_thamDinhForm != null && !_thamDinhForm.IsDisposed)
+                {
+                    _thamDinhForm.WindowState = FormWindowState.Normal;
+                    _thamDinhForm.Activate();
+                    return;
+                }
+
                 var sheetNames = new System.Collections.Generic.List<string>();
                 foreach (Microsoft.Office.Interop.Excel.Worksheet sheet in wb.Worksheets)
                 {
                     sheetNames.Add(sheet.Name);
                 }
 
-                // Tạm thời mượn ThamDinhConfigForm để người dùng map cột
-                var form = new ThamDinhConfigForm(sheetNames);
-                form.Text = "Cấu Hình Đọc Dự Toán - Lấy Đơn Giá";
+                var form = new ThamDinhConfigForm(sheetNames, _lastBoDonGiaId);
+                form.Text = "Cấu Hình Đọc Dự Toán - Lấy Danh Mục Đơn Giá Thẩm Định";
                 if (form.ShowDialog() == DialogResult.OK)
                 {
                     var config = form.ResultConfig;
                     
-                    // 1. Đọc dữ liệu
+                    var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang đọc dữ liệu dự toán và trích xuất danh mục vật tư...");
+                    loading.Show();
+                    System.Windows.Forms.Application.DoEvents();
+
                     var reader = new AIE.ExcelAddIn.Services.DuToanExcelReader();
                     var danhSachCongTac = reader.Read(config);
 
                     if (danhSachCongTac.Count == 0)
                     {
+                        loading.Close();
+                        loading.Dispose();
                         MessageBox.Show("Không tìm thấy dữ liệu công tác nào. Vui lòng kiểm tra lại cấu hình cột.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
 
-                    // 2. Thẩm định để map với định mức chuẩn
                     var db = new DatabaseManager();
                     var repo = new AIE.Data.Repositories.CongTacRepository(db.Context);
                     var vlRepo = new AIE.Data.Repositories.VatLieuRepository(db.Context);
@@ -269,62 +402,35 @@ namespace AIE.ExcelAddIn.Ribbon
                     var mayRepo = new AIE.Data.Repositories.MayThiCongRepository(db.Context);
                     var engine = new AIE.ExcelAddIn.Services.ThamDinhEngine(repo, vlRepo, ncRepo, mayRepo);
                     
-                    var ketQua = engine.KiemTra(danhSachCongTac);
-
-                    // 3. Trích xuất vật tư
+                    var ketQua = engine.KiemTra(danhSachCongTac, form.SelectedBoDonGiaId, config.Vung);
                     var danhSachVatTu = engine.TrichXuatVatTu(ketQua);
-                    
-                    // 4. Mở Form ThamDinhDonGiaForm
-                    var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang mở Thẩm định đơn giá...");
-                    loading.Show();
-                    System.Windows.Forms.Application.DoEvents();
-                    
-                    if (_thamDinhForm != null && !_thamDinhForm.IsDisposed)
-                    {
-                        loading.Close();
-                        loading.Dispose();
-                        _thamDinhForm.Activate();
-                        return;
-                    }
-                    var donGiaForm = new ThamDinhDonGiaForm(danhSachVatTu, config.Vung);
-                    _thamDinhForm = donGiaForm;
-                    
+
                     loading.Close();
                     loading.Dispose();
-                    
-                    // Xử lý logic sau khi form đóng qua FormClosed event (Modeless)
-                    var capturedEngine = engine;
-                    var capturedConfig = config;
-                    var capturedDanhSachCongTac = danhSachCongTac;
+
+                    _lastThamDinhConfig = config;
+                    _lastBoDonGiaId = form.SelectedBoDonGiaId;
+                    _lastThamDinhResults = ketQua;
+
+                    // Mở Form Thẩm định đơn giá dạng Modeless độc lập
+                    string currentKey = GetActiveWorkbookKey();
+                    var donGiaForm = new ThamDinhDonGiaForm(danhSachVatTu, config.Vung, form.SelectedBoDonGiaId);
+                    _thamDinhForms[currentKey] = donGiaForm;
                     donGiaForm.FormClosed += (s, ev) =>
                     {
-                        _thamDinhForm = null;
+                        _thamDinhForms.TryRemove(currentKey, out _);
                         if (donGiaForm.DialogResult == DialogResult.OK && donGiaForm.SavedBoDonGiaId.HasValue)
                         {
-                            var result = MessageBox.Show("Bạn có muốn áp dụng Bộ đơn giá vừa tạo để Thẩm định (Kiểm tra) dự toán này ngay không?", "Xác nhận", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
-                            if (result == DialogResult.Yes)
-                            {
-                                var loadingKiemTra = new AIE.ExcelAddIn.Forms.LoadingForm("Đang thẩm định lại...");
-                                loadingKiemTra.Show();
-                                System.Windows.Forms.Application.DoEvents();
-                                
-                                var ketQuaMoi = capturedEngine.KiemTra(capturedDanhSachCongTac, donGiaForm.SavedBoDonGiaId);
-                                var writer = new AIE.ExcelAddIn.Services.ThamDinhExcelWriter();
-                                writer.ExportResult(capturedConfig, ketQuaMoi);
-                                
-                                loadingKiemTra.Close();
-                                loadingKiemTra.Dispose();
-                                
-                                MessageBox.Show("Đã hoàn tất thẩm định và xuất kết quả ra sheet KQ_ThamDinh.", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                            }
+                            _lastBoDonGiaIdByWb[currentKey] = donGiaForm.SavedBoDonGiaId;
                         }
                     };
+
                     donGiaForm.Show();
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show("Lỗi khi đọc dự toán: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show("Lỗi khi mở Đơn giá thẩm định: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -332,6 +438,13 @@ namespace AIE.ExcelAddIn.Ribbon
         {
             try
             {
+                if (_thamDinhForm != null && !_thamDinhForm.IsDisposed)
+                {
+                    _thamDinhForm.WindowState = FormWindowState.Normal;
+                    _thamDinhForm.Activate();
+                    return;
+                }
+
                 var db = new DatabaseManager();
                 var repo = new BoDonGiaRepository(db.Context);
                 
@@ -340,51 +453,18 @@ namespace AIE.ExcelAddIn.Ribbon
                     form.Text = "Mở Bộ Đơn Giá Thẩm Định";
                     if (form.ShowDialog() == DialogResult.OK && form.SelectedBoDonGiaId > 0)
                     {
+                        int boId = form.SelectedBoDonGiaId;
+                        var selectedBo = repo.GetAll().FirstOrDefault(x => x.Id == boId);
+                        AIE.Core.Enums.Vung vung = AIE.Core.Enums.Vung.VungII;
+
                         var loading = new LoadingForm("Đang tải dữ liệu bộ đơn giá...");
                         loading.Show();
                         System.Windows.Forms.Application.DoEvents();
 
-                        int boId = form.SelectedBoDonGiaId;
-                        
-                        // Lấy vùng của bộ đơn giá
-                        var selectedBo = repo.GetAll().FirstOrDefault(x => x.Id == boId);
-                        AIE.Core.Enums.Vung vung = AIE.Core.Enums.Vung.VungII; // Mặc định vì BoDonGia hiện không lưu Vùng
-
-                        var vlRepo = new VatLieuRepository(db.Context);
-                        var ncRepo = new NhanCongRepository(db.Context);
-                        var mayRepo = new MayThiCongRepository(db.Context);
-
-                        // Reconstruct VatTuGiaModel list from the saved sets
-                        var dsVatTu = new System.Collections.Generic.List<VatTuGiaModel>();
-                        
-                        var giaVL = repo.GetGiaVL(boId);
-                        using (var conn = db.Context.GetConnection())
-                        {
-                            foreach(var vl in giaVL)
-                            {
-                                var master = vlRepo.GetByMa(vl.MaVL);
-                                string name = master?.TenVL ?? conn.QueryFirstOrDefault<string>("SELECT TenHaoPhi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = vl.MaVL }) ?? vl.MaVL;
-                                dsVatTu.Add(new VatTuGiaModel { MaHieu = vl.MaVL, TenVatTu = name, DonVi = master?.DonVi ?? "", GiaChuan = vl.GiaGoc, LoaiHP = AIE.Core.Enums.LoaiHaoPhi.VL });
-                            }
-
-                            var giaNC = repo.GetGiaNC(boId);
-                            foreach(var nc in giaNC)
-                            {
-                                var master = ncRepo.GetByMa(nc.MaNC);
-                                string name = master?.TenNC ?? conn.QueryFirstOrDefault<string>("SELECT TenHaoPhi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = nc.MaNC }) ?? nc.MaNC;
-                                dsVatTu.Add(new VatTuGiaModel { MaHieu = nc.MaNC, TenVatTu = name, DonVi = master?.DonVi ?? "", GiaChuan = nc.DonGia, LoaiHP = AIE.Core.Enums.LoaiHaoPhi.NC });
-                            }
-
-                            var giaMay = repo.GetGiaMay(boId);
-                            foreach(var m in giaMay)
-                            {
-                                var master = mayRepo.GetByMa(m.MaMay);
-                                string name = master?.TenMay ?? conn.QueryFirstOrDefault<string>("SELECT TenHaoPhi FROM HaoPhi WHERE MaHieuHP = @Ma", new { Ma = m.MaMay }) ?? m.MaMay;
-                                dsVatTu.Add(new VatTuGiaModel { MaHieu = m.MaMay, TenVatTu = name, DonVi = master?.DonVi ?? "", GiaChuan = m.DonGia, LoaiHP = AIE.Core.Enums.LoaiHaoPhi.MAY });
-                            }
-                        }
-
-                        var donGiaForm = new ThamDinhDonGiaForm(dsVatTu, vung, boId);
+                        // Sử dụng hàm nạp trực tiếp từ Database với đầy đủ giá gốc, cước VC, bốc xếp, ca máy
+                        string currentKey = GetActiveWorkbookKey();
+                        var donGiaForm = new ThamDinhDonGiaForm(boId, vung);
+                        _thamDinhForms[currentKey] = donGiaForm;
                         if (selectedBo != null)
                         {
                             donGiaForm.SetTenBoDonGia(selectedBo.TenBo, selectedBo.GiaXang, selectedBo.GiaDiezel, selectedBo.GiaDien);
@@ -393,8 +473,17 @@ namespace AIE.ExcelAddIn.Ribbon
                         loading.Close();
                         loading.Dispose();
 
-                        // Không tự động chạy Kiểm tra khi mở lại, người dùng lưu xong tự ấn Kiểm tra
-                        donGiaForm.ShowDialog();
+                        donGiaForm.FormClosed += (s, ev) =>
+                        {
+                            _thamDinhForms.TryRemove(currentKey, out _);
+                            if (donGiaForm.DialogResult == DialogResult.OK && donGiaForm.SavedBoDonGiaId.HasValue)
+                            {
+                                _lastBoDonGiaIdByWb[currentKey] = donGiaForm.SavedBoDonGiaId;
+                            }
+                        };
+
+                        // Mở dạng Modeless để không khóa Excel và cho phép Alt+Tab, Minimize
+                        donGiaForm.Show();
                     }
                 }
             }
@@ -436,7 +525,57 @@ namespace AIE.ExcelAddIn.Ribbon
 
         public void OnBaoCaoTDClicked(IRibbonControl control)
         {
-            MessageBox.Show("Chức năng Xuất Báo cáo thẩm định đang được phát triển.", "AIE Dự Toán");
+            try
+            {
+                var app = (Application)ExcelDnaUtil.Application;
+                var wb = app.ActiveWorkbook;
+                if (wb == null)
+                {
+                    MessageBox.Show("Không có file Excel nào đang mở.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (_lastThamDinhResults == null || _lastThamDinhResults.Count == 0 || _lastThamDinhConfig == null)
+                {
+                    var choice = MessageBox.Show(
+                        "Chưa có dữ liệu kiểm tra định mức, đơn giá trong phiên làm việc hiện tại.\n\nBạn có muốn thực hiện Kiểm tra dự toán trước khi Tổng hợp kinh phí thẩm định không?",
+                        "Tổng Hợp Kinh Phí Thẩm Định",
+                        MessageBoxButtons.YesNo,
+                        MessageBoxIcon.Question);
+                    if (choice == DialogResult.Yes)
+                    {
+                        OnKiemTraClicked(control);
+                    }
+                    return;
+                }
+
+                if (_xacNhanSaiKhacForm != null && !_xacNhanSaiKhacForm.IsDisposed)
+                {
+                    _xacNhanSaiKhacForm.WindowState = FormWindowState.Normal;
+                    _xacNhanSaiKhacForm.Activate();
+                    return;
+                }
+
+                string defaultProj = !string.IsNullOrEmpty(CurrentDuToan?.TenCongTrinh) 
+                    ? CurrentDuToan.TenCongTrinh 
+                    : (!string.IsNullOrEmpty(wb.Name) ? System.IO.Path.GetFileNameWithoutExtension(wb.Name) : "Công trình xây dựng");
+
+                string currentKey = wb.Name ?? GetActiveWorkbookKey();
+                var form = new XacNhanSaiKhacForm(_lastThamDinhResults, _lastThamDinhConfig, _lastBoDonGiaId, defaultProj);
+                _xacNhanSaiKhacForms[currentKey] = form;
+
+                form.FormClosed += (s, ev) =>
+                {
+                    _xacNhanSaiKhacForms.TryRemove(currentKey, out _);
+                };
+
+                // Mở cửa sổ dạng Modeless: cho phép Alt+Tab chuyển đổi qua lại với Excel, không khóa Excel
+                form.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi khi mở Tổng hợp kinh phí thẩm định: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
         }
 
         public void OnTaoDuToanMoiClicked(IRibbonControl control)
@@ -497,6 +636,50 @@ namespace AIE.ExcelAddIn.Ribbon
             }
         }
 
+        public void OnDongBoExcelClicked(IRibbonControl control)
+        {
+            DongBoDuLieuTuExcel();
+        }
+
+        public static void DongBoDuLieuTuExcel()
+        {
+            try
+            {
+                if (CurrentDuToan == null)
+                {
+                    MessageBox.Show("Chưa có dự toán nào đang hoạt động. Vui lòng tạo mới hoặc mở file dự toán!", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                TienTrinhXuLyForm.ChayTacVu("Đang đồng bộ dữ liệu từ Excel...", report =>
+                {
+                    report(20, "Đang đọc khối lượng và danh sách công tác từ Sheet hiện tại...");
+                    var excelSvc = new LapDuToanExcelService();
+                    var latestBoq = excelSvc.ReadBOQFromActiveSheet();
+
+                    if (latestBoq == null || (latestBoq.DanhSachHangMuc?.Count ?? 0) == 0)
+                    {
+                        throw new Exception("Không tìm thấy dữ liệu dự toán trên Sheet hiện tại!");
+                    }
+
+                    report(60, "Đang gộp và bảo toàn định mức, đơn giá đã tra...");
+                    var merged = DuToanSyncHelper.Merge(latestBoq, CurrentDuToan);
+                    DuToanSyncHelper.OverwriteInto(CurrentDuToan, merged);
+
+                    report(90, "Đang hoàn tất đồng bộ...");
+                    System.Threading.Thread.Sleep(200);
+                });
+
+                int soHm = CurrentDuToan.DanhSachHangMuc?.Count ?? 0;
+                int soCt = CurrentDuToan.DanhSachHangMuc?.Sum(h => h.DanhSachCongTac?.Count ?? 0) ?? 0;
+                MessageBox.Show($"Đồng bộ thành công!\n- Số hạng mục: {soHm}\n- Tổng số công tác: {soCt}", "Thành công", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi đồng bộ từ Excel: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
         public void OnGoiDonGiaClicked(IRibbonControl control)
         {
             try
@@ -505,25 +688,40 @@ namespace AIE.ExcelAddIn.Ribbon
                 var ws = app.ActiveSheet as Worksheet;
                 if (ws == null) return;
 
-                var selection = app.Selection as Range;
-
-                // Create DB context and repo
+                Range selection = app.Selection as Range;
                 var dbManager = new DatabaseManager();
                 var repo = new AIE.Data.Repositories.CongTacRepository(dbManager.Context);
 
                 // Tìm phạm vi dòng dữ liệu trong sheet (từ dòng 6)
-                int usedMax = ws.UsedRange.Rows.Count + ws.UsedRange.Row - 1;
+                var usedRange = ws.UsedRange;
+                int usedMax = usedRange.Rows.Count + usedRange.Row - 1;
+                Marshal.ReleaseComObject(usedRange);
+                int scanHigh = Math.Max(usedMax, 200);
                 int maxRow = Math.Max(usedMax, 6);
 
-                // Xác định dòng kết thúc thực sự có dữ liệu
-                for (int r = 6; r <= Math.Max(usedMax, 200); r++)
+                object[,] raw = null;
+                try
                 {
-                    string a = ws.Cells[r, 1]?.Value2?.ToString()?.Trim() ?? "";
-                    string b = ws.Cells[r, 2]?.Value2?.ToString()?.Trim() ?? "";
-                    string c = ws.Cells[r, 3]?.Value2?.ToString()?.Trim() ?? "";
-                    if (!string.IsNullOrEmpty(a) || !string.IsNullOrEmpty(b) || !string.IsNullOrEmpty(c))
+                    var rawRange = ws.Range[$"A6:D{scanHigh}"];
+                    raw = rawRange.Value2 as object[,];
+                    Marshal.ReleaseComObject(rawRange);
+                }
+                catch { }
+
+                // Xác định dòng kết thúc thực sự có dữ liệu
+                int dataRows = raw?.GetLength(0) ?? 0;
+                if (dataRows > 0)
+                {
+                    for (int i = 0; i < dataRows; i++)
                     {
-                        if (r > maxRow) maxRow = r;
+                        string a = raw[i + 1, 1]?.ToString()?.Trim() ?? "";
+                        string b = raw[i + 1, 2]?.ToString()?.Trim() ?? "";
+                        string c = raw[i + 1, 3]?.ToString()?.Trim() ?? "";
+                        if (!string.IsNullOrEmpty(a) || !string.IsNullOrEmpty(b) || !string.IsNullOrEmpty(c))
+                        {
+                            int r = 6 + i;
+                            if (r > maxRow) maxRow = r;
+                        }
                     }
                 }
 
@@ -531,26 +729,40 @@ namespace AIE.ExcelAddIn.Ribbon
                 var selectedRowIndices = new HashSet<int>();
                 if (selection != null)
                 {
-                    foreach (Range r in selection.Rows)
+                    var selRows = selection.Rows;
+                    foreach (Range r in selRows)
                     {
                         if (r.Row >= 6) selectedRowIndices.Add(r.Row);
+                        Marshal.ReleaseComObject(r);
                     }
+                    Marshal.ReleaseComObject(selRows);
+                    Marshal.ReleaseComObject(selection);
+                    selection = null;
                 }
 
                 int updatedCount = 0;
                 int currentStt = 0;
 
-                // Duyệt qua TOÀN BỘ các dòng từ dòng 6 đến maxRow để định dạng và tra cứu
-                for (int rowIndex = 6; rowIndex <= maxRow; rowIndex++)
-                {
-                    var rowRange = ws.Range[ws.Cells[rowIndex, 1], ws.Cells[rowIndex, 11]];
-                    rowRange.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
-                    rowRange.VerticalAlignment = Microsoft.Office.Interop.Excel.XlVAlign.xlVAlignCenter;
+                int procRows = maxRow - 6 + 1;
+                object[,] writeStt = new object[procRows, 1];
+                object[,] writeTen = new object[procRows, 1];
+                object[,] writeDonVi = new object[procRows, 1];
+                var hangMucIndices = new List<int>();
 
-                    var maHieuCell = ws.Cells[rowIndex, 2] as Range;
-                    string maHieu = maHieuCell?.Value2?.ToString()?.Trim() ?? "";
-                    string sttText = ws.Cells[rowIndex, 1]?.Value2?.ToString()?.Trim() ?? "";
-                    string tenText = ws.Cells[rowIndex, 3]?.Value2?.ToString()?.Trim() ?? "";
+                // Sao chép giá trị đọc được ban đầu để không xóa dữ liệu các dòng không thay đổi
+                for (int i = 0; i < procRows && raw != null && i < dataRows; i++)
+                {
+                    writeStt[i, 0] = raw[i + 1, 1];
+                    writeTen[i, 0] = raw[i + 1, 3];
+                    writeDonVi[i, 0] = raw[i + 1, 4];
+                }
+
+                for (int i = 0; i < procRows; i++)
+                {
+                    int rowIndex = 6 + i;
+                    string maHieu = raw != null && i < dataRows ? (raw[i + 1, 2]?.ToString()?.Trim() ?? "") : "";
+                    string sttText = raw != null && i < dataRows ? (raw[i + 1, 1]?.ToString()?.Trim() ?? "") : "";
+                    string tenText = raw != null && i < dataRows ? (raw[i + 1, 3]?.ToString()?.Trim() ?? "") : "";
 
                     // Kiểm tra xem dòng có phải là dòng Dữ liệu/Hạng mục không
                     if (string.IsNullOrEmpty(maHieu) && string.IsNullOrEmpty(sttText) && string.IsNullOrEmpty(tenText))
@@ -561,15 +773,14 @@ namespace AIE.ExcelAddIn.Ribbon
                     if (!string.IsNullOrEmpty(maHieu))
                     {
                         // Dòng CÔNG TÁC
-                        // Nếu dòng nằm trong selection hoặc tên đang trống thì tra cứu DB
                         bool shouldLookup = selectedRowIndices.Count <= 1 || selectedRowIndices.Contains(rowIndex) || string.IsNullOrEmpty(tenText);
                         if (shouldLookup)
                         {
                             var congTac = repo.GetByMaHieu(maHieu);
                             if (congTac != null)
                             {
-                                ws.Cells[rowIndex, 3].Value2 = congTac.TenCongTac;
-                                ws.Cells[rowIndex, 4].Value2 = congTac.DonVi;
+                                writeTen[i, 0] = congTac.TenCongTac;
+                                writeDonVi[i, 0] = congTac.DonVi;
                                 updatedCount++;
                             }
                         }
@@ -578,53 +789,128 @@ namespace AIE.ExcelAddIn.Ribbon
                         if (string.IsNullOrWhiteSpace(sttText) || !int.TryParse(sttText, out _))
                         {
                             currentStt++;
-                            ws.Cells[rowIndex, 1].Value2 = currentStt;
+                            writeStt[i, 0] = currentStt;
                         }
                         else if (int.TryParse(sttText, out int s))
                         {
                             currentStt = s;
                         }
-
-                        // Định dạng cho dòng công tác
-                        rowRange.Font.Bold = false;
-                        rowRange.Interior.ColorIndex = Microsoft.Office.Interop.Excel.XlColorIndex.xlColorIndexNone;
-                        ws.Cells[rowIndex, 1].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                        ws.Cells[rowIndex, 4].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                        ws.Cells[rowIndex, 3].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignJustify;
-                        ws.Cells[rowIndex, 3].WrapText = true;
-
-                        ExcelFormatHelper.ApplyQuantityFormat(ws.Cells[rowIndex, 5], 2);
-                        ExcelFormatHelper.ApplyIntegerFormat(ws.Range[ws.Cells[rowIndex, 6], ws.Cells[rowIndex, 11]]);
-                        ws.Range[ws.Cells[rowIndex, 5], ws.Cells[rowIndex, 11]].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignRight;
                     }
                     else
                     {
-                        // Dòng HẠNG MỤC hoặc dòng tiêu đề
+                        // Dòng HẠNG MỤC / tiêu đề: định dạng đậm + nền xanh (trừ dòng TỔNG CỘNG)
                         if (!tenText.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase))
                         {
-                            rowRange.Font.Bold = true;
-                            rowRange.Interior.Color = System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(220, 235, 252));
-                            ws.Cells[rowIndex, 1].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                            ws.Cells[rowIndex, 3].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignLeft;
+                            hangMucIndices.Add(i);
                         }
                     }
                 }
 
-                // Đóng khung toàn bộ bảng từ dòng 4 đến maxRow
-                var wholeTable = ws.Range[ws.Cells[4, 1], ws.Cells[maxRow, 11]];
-                wholeTable.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
+                // ===== GHI GIÁ TRỊ MỘT LƯỢT (giảm tối đa COM object) =====
+                if (procRows > 0)
+                {
+                    var rngStt = ws.Range[$"A6:A{maxRow}"];
+                    rngStt.Value2 = writeStt;
+                    Marshal.ReleaseComObject(rngStt);
 
-                // Đảm bảo mở lại hiển thị cột 10 (J) nếu vô tình bị ẩn
+                    var rngTen = ws.Range[$"C6:C{maxRow}"];
+                    rngTen.Value2 = writeTen;
+                    Marshal.ReleaseComObject(rngTen);
+
+                    var rngDV = ws.Range[$"D6:D{maxRow}"];
+                    rngDV.Value2 = writeDonVi;
+                    Marshal.ReleaseComObject(rngDV);
+                }
+
+                // ===== ĐỊNH DẠNG TOÀN BẢNG (một lượt, không dùng ws.Cells) =====
+                Range full1 = null;
                 try
                 {
-                    ((Range)ws.Columns[10]).Hidden = false;
-                    ((Range)ws.Columns[10]).ColumnWidth = 16;
-                }
-                catch { }
+                    full1 = ws.Range[$"A4:K{maxRow}"];
+                    var borders = full1.Borders;
+                    borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
+                    Marshal.ReleaseComObject(borders);
+                    full1.VerticalAlignment = Microsoft.Office.Interop.Excel.XlVAlign.xlVAlignCenter;
 
-                if (updatedCount == 0 && selectedRowIndices.Count > 1)
+                    // Cột A (STT) canh giữa
+                    var colA = ws.Range[$"A6:A{maxRow}"];
+                    colA.HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+                    Marshal.ReleaseComObject(colA);
+
+                    // Cột C (Tên) canh đều + wrap
+                    var colC = ws.Range[$"C6:C{maxRow}"];
+                    colC.HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignJustify;
+                    colC.WrapText = true;
+                    Marshal.ReleaseComObject(colC);
+
+                    // Cột D (Đơn vị) canh giữa
+                    var colD = ws.Range[$"D6:D{maxRow}"];
+                    colD.HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+                    Marshal.ReleaseComObject(colD);
+
+                    // Cột E..K (số liệu) canh phải + định dạng số
+                    var colNum = ws.Range[$"E6:K{maxRow}"];
+                    colNum.HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignRight;
+                    Marshal.ReleaseComObject(colNum);
+
+                    var colE = ws.Range[$"E6:E{maxRow}"];
+                    ExcelFormatHelper.ApplyQuantityFormat(colE, 2);
+                    Marshal.ReleaseComObject(colE);
+
+                    var colFtoK = ws.Range[$"F6:K{maxRow}"];
+                    ExcelFormatHelper.ApplyIntegerFormat(colFtoK);
+                    Marshal.ReleaseComObject(colFtoK);
+
+                    // Dòng HẠNG MỤC: gom theo nhóm địa chỉ để định dạng nhanh và không leak COM
+                    if (hangMucIndices.Count > 0)
+                    {
+                        var batch = new System.Text.StringBuilder();
+                        int countInBatch = 0;
+                        foreach (int idx in hangMucIndices)
+                        {
+                            int r = 6 + idx;
+                            string addr = $"A{r}:K{r}";
+                            if (batch.Length > 0) batch.Append(",");
+                            batch.Append(addr);
+                            countInBatch++;
+
+                            if (batch.Length > 200 || countInBatch >= 15)
+                            {
+                                var hmBatch = ws.Range[batch.ToString()];
+                                hmBatch.Font.Bold = true;
+                                hmBatch.Interior.Color = System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(220, 235, 252));
+                                Marshal.ReleaseComObject(hmBatch);
+                                batch.Clear();
+                                countInBatch = 0;
+                            }
+                        }
+                        if (batch.Length > 0)
+                        {
+                            var hmBatch = ws.Range[batch.ToString()];
+                            hmBatch.Font.Bold = true;
+                            hmBatch.Interior.Color = System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(220, 235, 252));
+                            Marshal.ReleaseComObject(hmBatch);
+                        }
+                    }
+
+                    // Đảm bảo mở lại hiển thị cột 10 (J) nếu vô tình bị ẩn
+                    try
+                    {
+                        var colJ = ws.Range[$"J6:J{maxRow}"];
+                        colJ.Hidden = false;
+                        Marshal.ReleaseComObject(colJ);
+                    }
+                    catch { }
+
+                    if (updatedCount == 0 && selectedRowIndices.Count > 1)
+                    {
+                        MessageBox.Show("Đã chuẩn hóa định dạng bảng và các dòng Hạng mục. Không tìm thấy Mã hiệu mới nào cần tra cứu.", "AIE Dự Toán", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
+                }
+                finally
                 {
-                    MessageBox.Show("Đã chuẩn hóa định dạng bảng và các dòng Hạng mục. Không tìm thấy Mã hiệu mới nào cần tra cứu.", "AIE Dự Toán", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    if (full1 != null) Marshal.ReleaseComObject(full1);
+                    if (ws != null) Marshal.ReleaseComObject(ws);
                 }
             }
             catch (Exception ex)
@@ -647,14 +933,23 @@ namespace AIE.ExcelAddIn.Ribbon
                 var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
                 var duToan = CurrentDuToan;
 
-                if (duToan == null || duToan.DanhSachHangMuc == null || duToan.DanhSachHangMuc.Count == 0 || duToan.DanhSachHangMuc.Sum(hm => hm.DanhSachCongTac.Count) == 0)
+                try
                 {
-                    try
+                    var latestBoq = excelService.ReadBOQFromActiveSheet();
+                    if (latestBoq != null && (latestBoq.DanhSachHangMuc?.Count ?? 0) > 0)
                     {
-                        duToan = excelService.ReadBOQFromActiveSheet();
+                        if (duToan == null || duToan.DanhSachHangMuc == null || duToan.DanhSachHangMuc.Count == 0)
+                        {
+                            duToan = latestBoq;
+                        }
+                        else
+                        {
+                            var merged = DuToanSyncHelper.Merge(latestBoq, duToan);
+                            DuToanSyncHelper.OverwriteInto(duToan, merged);
+                        }
                     }
-                    catch { }
                 }
+                catch { }
 
                 if (duToan == null || duToan.DanhSachHangMuc == null || duToan.DanhSachHangMuc.Count == 0 || duToan.DanhSachHangMuc.Sum(hm => hm.DanhSachCongTac.Count) == 0)
                 {
@@ -680,9 +975,10 @@ namespace AIE.ExcelAddIn.Ribbon
                     return;
                 }
                 CurrentDuToan = duToan;
+                string currentKey = GetActiveWorkbookKey();
                 var form = new TongHopKinhPhiForm(duToan);
-                _tongHopForm = form;
-                form.FormClosed += (s, ev) => { _tongHopForm = null; };
+                _tongHopForms[currentKey] = form;
+                form.FormClosed += (s, ev) => { _tongHopForms.TryRemove(currentKey, out _); };
                 form.Show();
             }
             catch (Exception ex)
@@ -737,14 +1033,53 @@ namespace AIE.ExcelAddIn.Ribbon
                     return;
                 }
                 CurrentDuToan = duToan;
+                string currentKey = GetActiveWorkbookKey();
                 var form = new TongHopKinhPhiForm(duToan, macDinhTongMucDauTu);
-                _tongHopForm = form;
-                form.FormClosed += (s, ev) => { _tongHopForm = null; };
+                _tongHopForms[currentKey] = form;
+                form.FormClosed += (s, ev) => { _tongHopForms.TryRemove(currentKey, out _); };
                 form.Show();
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Lỗi mở Bảng Tổng hợp kinh phí: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        public static void MoTongHopKinhPhiTuShortcut()
+        {
+            try
+            {
+                var duToan = CurrentDuToan;
+                if (duToan == null)
+                {
+                    try
+                    {
+                        var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
+                        duToan = excelService.ReadBOQFromActiveSheet();
+                    }
+                    catch { }
+
+                    if (duToan == null)
+                    {
+                        duToan = new DuToan();
+                    }
+                }
+
+                if (_tongHopForm != null && !_tongHopForm.IsDisposed)
+                {
+                    _tongHopForm.Activate();
+                    return;
+                }
+                CurrentDuToan = duToan;
+                string currentKey = GetActiveWorkbookKey();
+                var form = new TongHopKinhPhiForm(duToan);
+                _tongHopForms[currentKey] = form;
+                form.FormClosed += (s, ev) => { _tongHopForms.TryRemove(currentKey, out _); };
+                form.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi mở Tổng hợp kinh phí: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -863,9 +1198,10 @@ namespace AIE.ExcelAddIn.Ribbon
                     _tinhGiaForm.Activate();
                     return;
                 }
+                string currentKey = GetActiveWorkbookKey();
                 var form = new TinhGiaHienTruongForm(duToan, service, phanTichDonGiaService);
-                _tinhGiaForm = form;
-                form.FormClosed += (s, ev) => { _tinhGiaForm = null; };
+                _tinhGiaForms[currentKey] = form;
+                form.FormClosed += (s, ev) => { _tinhGiaForms.TryRemove(currentKey, out _); };
                 
                 loading.Close();
                 loading.Dispose();
@@ -891,37 +1227,21 @@ namespace AIE.ExcelAddIn.Ribbon
             {
                 var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
                 var latestDuToan = excelService.ReadBOQFromActiveSheet();
-                
+
                 if (CurrentDuToan != null)
                 {
-                    latestDuToan.BoDonGiaId = CurrentDuToan.BoDonGiaId;
-                    latestDuToan.ChiPhiXD = CurrentDuToan.ChiPhiXD;
-                    latestDuToan.BangTongHop = CurrentDuToan.BangTongHop;
-                    latestDuToan.LoaiCongTrinh = CurrentDuToan.LoaiCongTrinh;
-                    
-                    // Bảo toàn DanhSachHaoPhi từ CurrentDuToan
-                    var oldCongTacDict = new System.Collections.Generic.Dictionary<string, AIE.Core.Models.DongDuToan>();
-                    foreach (var hm in CurrentDuToan.DanhSachHangMuc)
-                    {
-                        foreach (var ct in hm.DanhSachCongTac)
-                        {
-                            if (!string.IsNullOrEmpty(ct.MaHieu) && !oldCongTacDict.ContainsKey(ct.MaHieu))
-                                oldCongTacDict[ct.MaHieu] = ct;
-                        }
-                    }
-                    
-                    foreach (var hm in latestDuToan.DanhSachHangMuc)
-                    {
-                        foreach (var ct in hm.DanhSachCongTac)
-                        {
-                            if (!string.IsNullOrEmpty(ct.MaHieu) && oldCongTacDict.TryGetValue(ct.MaHieu, out var oldCt))
-                            {
-                                ct.DanhSachHaoPhi = oldCt.DanhSachHaoPhi;
-                            }
-                        }
-                    }
+                    // Gộp dữ liệu: BOQ từ sheet (latestDuToan) + toàn bộ dữ liệu kinh phí/cấu hình từ bộ nhớ (CurrentDuToan).
+                    // GIỮ NGUYÊN instance CurrentDuToan để form Tổng hợp kinh phí đang mở không bị lệch tham chiếu.
+                    var merged = DuToanSyncHelper.Merge(latestDuToan, CurrentDuToan);
+                    DuToanSyncHelper.OverwriteInto(CurrentDuToan, merged);
                 }
-                CurrentDuToan = latestDuToan;
+                else
+                {
+                    CurrentDuToan = latestDuToan;
+                }
+
+                // Đọc lại hệ số điều chỉnh (VL/NC/M) theo hạng mục do người dùng nhập tay trên sheet HeSo_DieuChinh
+                excelService.DocHeSoDieuChinhTuSheet(CurrentDuToan);
 
                 string filePath = CurrentFilePath;
 
@@ -931,9 +1251,8 @@ namespace AIE.ExcelAddIn.Ribbon
                     using var sfd = new SaveFileDialog();
                     sfd.Filter = "File Dự Toán (*.dt)|*.dt";
                     sfd.Title = "Lưu Dự Toán";
-                    sfd.FileName = string.IsNullOrEmpty(CurrentDuToan.TenCongTrinh)
-                        ? "DuToan_Moi.dt"
-                        : CurrentDuToan.TenCongTrinh.Replace(" ", "_") + ".dt";
+                    string safeName = AIE.Core.Services.Shared.TextHelper.SanitizeFileName(CurrentDuToan.TenCongTrinh, "DuToan_Moi");
+                    sfd.FileName = safeName + ".dt";
 
                     if (sfd.ShowDialog() != DialogResult.OK) return false;
                     filePath = sfd.FileName;
@@ -941,6 +1260,7 @@ namespace AIE.ExcelAddIn.Ribbon
 
                 AIE.ExcelAddIn.Services.DuToanFileService.Save(CurrentDuToan, filePath);
                 CurrentFilePath = filePath;
+                AIE.ExcelAddIn.Services.AutoSaveManager.DeleteAutoSave(GetActiveWorkbookKey());
 
                 MessageBox.Show(
                     $"Đã lưu dự toán thành công!\n\nFile: {filePath}",
@@ -965,31 +1285,118 @@ namespace AIE.ExcelAddIn.Ribbon
 
                 if (ofd.ShowDialog() != DialogResult.OK) return;
 
-                var duToan = AIE.ExcelAddIn.Services.DuToanFileService.Load(ofd.FileName);
-                CurrentDuToan = duToan;
-                CurrentFilePath = ofd.FileName;
-
-                var app = (Application)ExcelDnaUtil.Application;
-                app.Workbooks.Add(); // Tạo workbook mới
-
-                // Ghi dữ liệu ra Excel (sheet hiện tại) để người dùng có thể xem/chỉnh sửa
-                var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
-                excelService.WriteBOQToActiveSheet(duToan);
-
-                // Nếu dự toán đã được tính toán tổng hợp (đã có ChiPhiXD), tự động xuất lại các bảng biểu
-                if (duToan.ChiPhiXD != null)
-                {
-                    var xuatService = new AIE.ExcelAddIn.Services.XuatBangBieuService();
-                    xuatService.Xuat7BangBieu(duToan);
-                }
-
-                MessageBox.Show(
-                    $"Đã mở dự toán thành công!\n\nCông trình: {duToan.TenCongTrinh}\nLoại: {duToan.LoaiCongTrinh}\nFile: {ofd.FileName}",
-                    "Mở Dự Toán", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MoDuToanTuFile(ofd.FileName);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Lỗi khi mở: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        public void OnPhucHoiAutoSaveClicked(IRibbonControl control)
+        {
+            try
+            {
+                AIE.ExcelAddIn.Services.AutoSaveManager.CheckAndPromptRecovery();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi khi kiểm tra phục hồi tự động: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>
+        /// Mở file .dt: tạo workbook mới, ghi BOQ ra sheet, xuất các bảng thành phần nếu đã có ChiPhiXD.
+        /// KHÔNG xuất TH_ChiPhiXD / TongMucDauTu / TH_DuToan / HeSo_DieuChinh — các sheet này chỉ do
+        /// modal Tổng hợp kinh phí xuất, tránh ghi dữ liệu cũ.
+        /// </summary>
+        public static bool MoDuToanTuDuongDan(string filePath)
+        {
+            var duToan = AIE.ExcelAddIn.Services.DuToanFileService.Load(filePath);
+            var app = (Application)ExcelDnaUtil.Application;
+            var wb = app.Workbooks.Add(); // Tạo workbook mới
+            string wbKey = wb.Name;
+            _duToanByWb[wbKey] = duToan;
+            _filePathByWb[wbKey] = filePath;
+
+            // Ghi dữ liệu ra Excel (sheet hiện tại) để người dùng có thể xem/chỉnh sửa
+            var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
+            excelService.WriteBOQToActiveSheet(duToan);
+
+            // Luôn tái tính đơn giá + liên kết lại sheet DuToan theo Bảng tổng hợp hiện tại,
+            // tránh sheet giữ đơn giá cũ (lệch với modal Tổng hợp kinh phí khi xuất).
+            var hasCongTac = duToan.DanhSachHangMuc != null &&
+                             duToan.DanhSachHangMuc.Sum(hm => hm.DanhSachCongTac?.Count ?? 0) > 0;
+            var bth = duToan.BangTongHop;
+            var hasBangTongHop = bth != null &&
+                                 ((bth.DanhSachVatLieu?.Count ?? 0) + (bth.DanhSachNhanCong?.Count ?? 0) + (bth.DanhSachMay?.Count ?? 0)) > 0;
+            if (hasCongTac && (duToan.ChiPhiXD != null || hasBangTongHop))
+            {
+                var xuatService = new AIE.ExcelAddIn.Services.XuatBangBieuService();
+                xuatService.ApGiaVaLienKetDuToan(duToan);
+
+                if (xuatService.LastDonGiaDrift > 1000m)
+                {
+                    MessageBox.Show(
+                        $"Đơn giá trong file lưu đã cũ so với Bảng tổng hợp hiện tại.\n" +
+                        $"Đã tự động cập nhật lại đơn giá và các bảng liên quan.\n\n" +
+                        $"Tổng chênh lệch tạm tính: {xuatService.LastDonGiaDrift:N0} đồng.",
+                        "Cập nhật đơn giá", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            }
+
+            MessageBox.Show(
+                $"Đã mở dự toán thành công!\n\nCông trình: {duToan.TenCongTrinh}\nLoại: {duToan.LoaiCongTrinh}\nFile: {filePath}",
+                "Mở Dự Toán", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return true;
+        }
+
+        private bool MoDuToanTuFile(string filePath)
+        {
+            return MoDuToanTuDuongDan(filePath);
+        }
+
+        /// <summary>
+        /// Khôi phục file .dt hiện tại từ bản lưu .bak gần nhất (được tạo tự động mỗi lần Lưu),
+        /// sau đó tải lại dự toán vào workbook mới.
+        /// </summary>
+        public void OnKhoiPhucBamLuuClicked(IRibbonControl control)
+        {
+            try
+            {
+                if (string.IsNullOrWhiteSpace(CurrentFilePath) || !System.IO.File.Exists(CurrentFilePath))
+                {
+                    MessageBox.Show("Chưa có dự toán nào được mở/lưu trong phiên làm việc này.", "Khôi phục bản lưu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                string bak = CurrentFilePath + ".bak";
+                if (!System.IO.File.Exists(bak))
+                {
+                    MessageBox.Show($"Không tìm thấy bản lưu gần nhất:\n{bak}\n\n(Lưu lại dự toán ít nhất 1 lần để tạo bản lưu).", "Khôi phục bản lưu", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                var confirm = MessageBox.Show(
+                    "Phục hồi dự toán hiện tại từ bản lưu .bak gần nhất?\n\n" + CurrentFilePath + "\n\nCác thay đổi sau lần lưu gần nhất sẽ bị mất.",
+                    "Khôi phục bản lưu",
+                    MessageBoxButtons.YesNo,
+                    MessageBoxIcon.Question);
+                if (confirm != DialogResult.Yes) return;
+
+                bool restored = AIE.ExcelAddIn.Services.DuToanFileService.KhoiPhucTuBanLuu(CurrentFilePath);
+                if (!restored)
+                {
+                    MessageBox.Show("Không thể phục hồi bản lưu.", "Khôi phục bản lưu", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    return;
+                }
+
+                MessageBox.Show("Đã phục hồi file từ bản lưu .bak. Đang tải lại dự toán...", "Khôi phục bản lưu", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MoDuToanTuFile(CurrentFilePath);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Lỗi khi khôi phục: " + ex.Message, "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
     }

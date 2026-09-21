@@ -8,7 +8,7 @@ namespace AIE.Data
     /// <summary>
     /// Quản lý tập trung database SQLite: khởi tạo, import dữ liệu.
     /// </summary>
-    public class DatabaseManager
+    public class DatabaseManager : IDisposable
     {
         private readonly string _dbPath;
         private AieDbContext _context;
@@ -29,6 +29,12 @@ namespace AIE.Data
 
         public string DbPath { get { return _dbPath; } }
         public AieDbContext Context { get { return _context; } }
+
+        public void Dispose()
+        {
+            _context?.Dispose();
+            _context = null;
+        }
 
         /// <summary>
         /// Import file 1_DinhMucCongTac.xlsx

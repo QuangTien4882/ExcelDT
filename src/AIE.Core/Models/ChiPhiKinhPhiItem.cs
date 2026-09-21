@@ -81,7 +81,7 @@ namespace AIE.Core.Models
         public decimal ThueSuatGTGT { get; set; } = 0.10m;
 
         /// <summary>Tiền thuế GTGT (đồng) = GiaTriTruocThue * ThueSuatGTGT</summary>
-        public decimal TienThueGTGT => Math.Round(GiaTriTruocThue * ThueSuatGTGT, 0);
+        public decimal TienThueGTGT => Math.Round(GiaTriTruocThue * ThueSuatGTGT, 0, MidpointRounding.AwayFromZero);
 
         /// <summary>Giá trị sau thuế (đồng) = GiaTriTruocThue + TienThueGTGT</summary>
         public decimal GiaTriSauThue => GiaTriTruocThue + TienThueGTGT;
@@ -120,7 +120,7 @@ namespace AIE.Core.Models
     public class BangTongHopKinhPhiModel
     {
         // --- Thông số thiết lập dự án ---
-        public string LoaiCongTrinh { get; set; } = "";         // Dân dụng, Công nghiệp, Giao thông, Nông nghiệp & PTNT, Hạ tầng kỹ thuật
+        public string LoaiCongTrinh { get; set; } = "";         // Dân dụng, Công nghiệp, Giao thông, Nông nghiệp & Môi trường, Hạ tầng kỹ thuật
         public string CapCongTrinh { get; set; } = "";          // Cấp đặc biệt, Cấp I, Cấp II, Cấp III, Cấp IV
         public int SoBuocThietKe { get; set; } = 0;             // 0: Chưa chọn, 1: 1 bước, 2: 2 bước, 3: 3 bước
 
@@ -167,10 +167,14 @@ namespace AIE.Core.Models
             decimal gTB = ChiPhiTBTruocThue;
             decimal gXDTB = gXD + gTB;
 
-            // 2. Tính QLDA và Tư vấn
+            // 2. Tính QLDA và Tư vấn (các khoản có cơ sở tính XD / TB / XD+TB)
             foreach (var item in Items)
             {
                 if (!item.IsActive || item.Nhom == NhomChiPhi.ChiPhiXayDung || item.Nhom == NhomChiPhi.ChiPhiThietBi || item.Nhom == NhomChiPhi.BoiThuong_TDC || item.Nhom == NhomChiPhi.ChiPhiDuPhong)
+                    continue;
+
+                // Khoản tính theo Tổng mức đầu tư (phí thẩm định dự án) được tính riêng ở bước 3
+                if (item.CoSoTinh == CoSoTinhChiPhi.TongMucDauTu)
                     continue;
 
                 if (item.CachTinh == CachTinhChiPhi.TheoTyLeDinhMuc)
@@ -198,11 +202,36 @@ namespace AIE.Core.Models
                     if (item.MaxValue.HasValue && val > item.MaxValue.Value)
                         val = item.MaxValue.Value;
 
-                    item.GiaTriTruocThue = Math.Round(val, 0);
+                    item.GiaTriTruocThue = Math.Round(val, 0, MidpointRounding.AwayFromZero);
                 }
             }
 
-            // 3. Tính Chi phí Dự phòng (G_DP)
+            // 3. Tính các khoản có cơ sở tính theo Tổng mức đầu tư (Ví dụ: Phí thẩm định dự án - K_TD_DA)
+            // Cơ sở = tổng các khoản mục đang kích hoạt trừ chính khoản phí đang tính và trừ dự phòng
+            foreach (var item in Items)
+            {
+                if (!item.IsActive || item.CachTinh != CachTinhChiPhi.TheoTyLeDinhMuc)
+                    continue;
+                if (item.CoSoTinh != CoSoTinhChiPhi.TongMucDauTu)
+                    continue;
+
+                decimal coSo = Items
+                    .Where(x => x.IsActive
+                        && x.Id != item.Id
+                        && x.Nhom != NhomChiPhi.ChiPhiDuPhong)
+                    .Sum(x => x.GiaTriTruocThue);
+
+                decimal val = (coSo * (item.TyLePhanTram / 100m)) * item.HeSoDieuChinh;
+
+                if (item.MinValue.HasValue && val < item.MinValue.Value && coSo > 0)
+                    val = item.MinValue.Value;
+                if (item.MaxValue.HasValue && val > item.MaxValue.Value)
+                    val = item.MaxValue.Value;
+
+                item.GiaTriTruocThue = Math.Round(val, 0, MidpointRounding.AwayFromZero);
+            }
+
+            // 4. Tính Chi phí Dự phòng (G_DP)
             // Tổng chi phí các nhóm từ I đến V (trước DP)
             decimal tongTruocDP = Items
                 .Where(x => x.IsActive && x.Nhom != NhomChiPhi.ChiPhiDuPhong)
@@ -214,7 +243,7 @@ namespace AIE.Core.Models
                 if (itemDP.CachTinh == CachTinhChiPhi.TheoTyLeDinhMuc)
                 {
                     decimal valDP = tongTruocDP * (itemDP.TyLePhanTram / 100m) * itemDP.HeSoDieuChinh;
-                    itemDP.GiaTriTruocThue = Math.Round(valDP, 0);
+                    itemDP.GiaTriTruocThue = Math.Round(valDP, 0, MidpointRounding.AwayFromZero);
                 }
             }
         }

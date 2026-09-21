@@ -53,7 +53,7 @@ namespace AIE.ExcelAddIn.Forms
             // Địa điểm
             var lblDiaDiem = new Label { Text = "Địa điểm:", Location = new Point(20, y + 4), Size = new Size(lblWidth, 25) };
             txtDiaDiem = new TextBox { Location = new Point(140, y), Size = new Size(txtWidth, 25), Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right };
-            txtDiaDiem.Text = "Đà Nẵng"; // Default
+            txtDiaDiem.Text = string.Empty;
             y += 40;
 
             // Vùng

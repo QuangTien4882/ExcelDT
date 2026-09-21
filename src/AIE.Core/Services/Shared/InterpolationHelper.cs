@@ -184,7 +184,7 @@ public static class InterpolationHelper
     /// </summary>
     public static decimal LayTiLeCPCTMDT(string loaiCongTrinh, string? phanLoaiPhu = null)
     {
-        string normCT = loaiCongTrinh?.Trim() ?? "";
+        string normCT = DinhMucTT38Database.ChuanHoaLoaiCongTrinh(loaiCongTrinh);
         string normPhu = phanLoaiPhu?.Trim() ?? "";
 
         if (normCT.IndexOf("Dân dụng", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -228,7 +228,7 @@ public static class InterpolationHelper
     /// </summary>
     public static decimal LayTiLeTNCTTT(string loaiCongTrinh)
     {
-        string norm = loaiCongTrinh?.Trim() ?? "";
+        string norm = DinhMucTT38Database.ChuanHoaLoaiCongTrinh(loaiCongTrinh);
         if (norm.IndexOf("Công nghiệp", StringComparison.OrdinalIgnoreCase) >= 0 ||
             norm.IndexOf("Giao thông", StringComparison.OrdinalIgnoreCase) >= 0 ||
             norm.IndexOf("Lắp đặt thiết bị", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -236,7 +236,7 @@ public static class InterpolationHelper
             return 6.0m;
         }
 
-        return 5.5m; // Dân dụng, NN&PTNT, Hạ tầng kỹ thuật
+        return 5.5m; // Dân dụng, Nông nghiệp & Môi trường, Hạ tầng kỹ thuật
     }
 }
 

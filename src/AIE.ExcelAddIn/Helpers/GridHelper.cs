@@ -124,6 +124,125 @@ namespace AIE.ExcelAddIn.Helpers
             }
         }
 
+        public class MergedHeaderGroup
+        {
+            public int StartCol { get; set; }
+            public int EndCol { get; set; }
+            public string HeaderText { get; set; } = string.Empty;
+
+            public MergedHeaderGroup(int startCol, int endCol, string headerText)
+            {
+                StartCol = startCol;
+                EndCol = endCol;
+                HeaderText = headerText;
+            }
+        }
+
+        public static void PaintMultiMergedHeaders(object sender, DataGridViewCellPaintingEventArgs e, DataGridView dgv, 
+            params MergedHeaderGroup[] groups)
+        {
+            if (e.RowIndex == -1 && e.ColumnIndex >= 0)
+            {
+                e.Handled = true;
+
+                MergedHeaderGroup matchedGroup = null;
+                if (groups != null)
+                {
+                    for (int g = 0; g < groups.Length; g++)
+                    {
+                        if (e.ColumnIndex >= groups[g].StartCol && e.ColumnIndex <= groups[g].EndCol)
+                        {
+                            matchedGroup = groups[g];
+                            break;
+                        }
+                    }
+                }
+
+                bool isMerged = matchedGroup != null;
+
+                Region oldClip = e.Graphics.Clip;
+                e.Graphics.SetClip(e.CellBounds);
+
+                // 1. Draw background
+                using (Brush backBrush = new SolidBrush(e.CellStyle.BackColor))
+                {
+                    e.Graphics.FillRectangle(backBrush, e.CellBounds);
+                }
+
+                int midY = e.CellBounds.Top + (e.CellBounds.Height / 2);
+
+                // 2. Draw border
+                using (Pen gridPen = new Pen(dgv.GridColor))
+                {
+                    // Top border
+                    e.Graphics.DrawLine(gridPen, e.CellBounds.Left, e.CellBounds.Top, e.CellBounds.Right, e.CellBounds.Top);
+                    // Bottom border
+                    e.Graphics.DrawLine(gridPen, e.CellBounds.Left, e.CellBounds.Bottom - 1, e.CellBounds.Right, e.CellBounds.Bottom - 1);
+
+                    if (isMerged)
+                    {
+                        // Horizontal divider
+                        e.Graphics.DrawLine(gridPen, e.CellBounds.Left, midY, e.CellBounds.Right, midY);
+
+                        if (e.ColumnIndex == matchedGroup.EndCol)
+                        {
+                            e.Graphics.DrawLine(gridPen, e.CellBounds.Right - 1, e.CellBounds.Top, e.CellBounds.Right - 1, e.CellBounds.Bottom);
+                        }
+                        else
+                        {
+                            e.Graphics.DrawLine(gridPen, e.CellBounds.Right - 1, midY, e.CellBounds.Right - 1, e.CellBounds.Bottom);
+                        }
+                    }
+                    else
+                    {
+                        e.Graphics.DrawLine(gridPen, e.CellBounds.Right - 1, e.CellBounds.Top, e.CellBounds.Right - 1, e.CellBounds.Bottom);
+                    }
+                }
+
+                // 3. Draw text
+                using (Brush foreBrush = new SolidBrush(e.CellStyle.ForeColor))
+                {
+                    StringFormat format = new StringFormat
+                    {
+                        Alignment = StringAlignment.Center,
+                        LineAlignment = StringAlignment.Center,
+                        Trimming = StringTrimming.EllipsisCharacter
+                    };
+
+                    if (isMerged)
+                    {
+                        // Sub-header in bottom half
+                        Rectangle subRect = new Rectangle(e.CellBounds.Left, midY, e.CellBounds.Width, e.CellBounds.Height / 2);
+                        string text = e.Value?.ToString() ?? "";
+                        e.Graphics.DrawString(text, e.CellStyle.Font, foreBrush, subRect, format);
+
+                        // Main header in top half
+                        int startX = e.CellBounds.Left;
+                        for (int i = matchedGroup.StartCol; i < e.ColumnIndex; i++)
+                        {
+                            startX -= dgv.Columns[i].Width;
+                        }
+
+                        int totalWidth = 0;
+                        for (int i = matchedGroup.StartCol; i <= matchedGroup.EndCol; i++)
+                        {
+                            totalWidth += dgv.Columns[i].Width;
+                        }
+
+                        Rectangle mainRect = new Rectangle(startX, e.CellBounds.Top, totalWidth, e.CellBounds.Height / 2);
+                        e.Graphics.DrawString(matchedGroup.HeaderText, e.CellStyle.Font, foreBrush, mainRect, format);
+                    }
+                    else
+                    {
+                        format.FormatFlags = StringFormatFlags.NoClip;
+                        e.Graphics.DrawString(e.Value?.ToString(), e.CellStyle.Font, foreBrush, e.CellBounds, format);
+                    }
+                }
+
+                e.Graphics.Clip = oldClip;
+            }
+        }
+
         /// <summary>
         /// Tự động co giãn toàn bộ dòng và cột cho DataGridView phù hợp với dữ liệu hiện có
         /// </summary>

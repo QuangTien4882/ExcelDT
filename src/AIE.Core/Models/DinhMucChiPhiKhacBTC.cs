@@ -33,7 +33,7 @@ namespace AIE.Core.Models
         // Mốc quy mô: <=15, 25, 50, 100, 200, 500, 1000, 2000, 5000, >=10000 tỷ
         // =========================================================================
         public static readonly decimal[] MocQuyMoThamDinhDuAn = new decimal[] { 15m, 25m, 50m, 100m, 200m, 500m, 1000m, 2000m, 5000m, 10000m };
-        public static readonly decimal[] TiLeThamDinhDuAn = new decimal[] { 0.0190m, 0.0170m, 0.0150m, 0.0125m, 0.0100m, 0.0075m, 0.0047m, 0.0025m, 0.0020m, 0.0010m };
+        public static readonly decimal[] TiLeThamDinhDuAn = new decimal[] { 0.0190m, 0.0170m, 0.0150m, 0.0130m, 0.0100m, 0.0080m, 0.0050m, 0.0030m, 0.0020m, 0.0010m };
 
         // =========================================================================
         // 4 & 5. MỐC QUY MÔ CHI PHÍ XÂY DỰNG CHO THẨM ĐỊNH THIẾT KẾ VÀ DỰ TOÁN
@@ -47,6 +47,7 @@ namespace AIE.Core.Models
             ["Dân dụng"] = new decimal[] { 0.165m, 0.110m, 0.085m, 0.065m, 0.050m, 0.041m, 0.029m, 0.022m, 0.019m },
             ["Công nghiệp"] = new decimal[] { 0.190m, 0.126m, 0.097m, 0.075m, 0.058m, 0.044m, 0.035m, 0.026m, 0.022m },
             ["Giao thông"] = new decimal[] { 0.109m, 0.072m, 0.055m, 0.043m, 0.033m, 0.025m, 0.021m, 0.016m, 0.014m },
+            [DinhMucTT38Database.LoaiNongNghiepMoiTruong] = new decimal[] { 0.121m, 0.080m, 0.061m, 0.048m, 0.037m, 0.028m, 0.023m, 0.017m, 0.014m },
             ["Nông nghiệp & PTNT"] = new decimal[] { 0.121m, 0.080m, 0.061m, 0.048m, 0.037m, 0.028m, 0.023m, 0.017m, 0.014m },
             ["Hạ tầng kỹ thuật"] = new decimal[] { 0.126m, 0.085m, 0.065m, 0.050m, 0.039m, 0.030m, 0.026m, 0.019m, 0.017m }
         };
@@ -57,6 +58,7 @@ namespace AIE.Core.Models
             ["Dân dụng"] = new decimal[] { 0.160m, 0.106m, 0.083m, 0.062m, 0.046m, 0.038m, 0.028m, 0.021m, 0.018m },
             ["Công nghiệp"] = new decimal[] { 0.185m, 0.121m, 0.094m, 0.072m, 0.055m, 0.041m, 0.033m, 0.023m, 0.020m },
             ["Giao thông"] = new decimal[] { 0.106m, 0.068m, 0.054m, 0.041m, 0.031m, 0.024m, 0.020m, 0.014m, 0.012m },
+            [DinhMucTT38Database.LoaiNongNghiepMoiTruong] = new decimal[] { 0.117m, 0.076m, 0.060m, 0.046m, 0.035m, 0.026m, 0.022m, 0.016m, 0.014m },
             ["Nông nghiệp & PTNT"] = new decimal[] { 0.117m, 0.076m, 0.060m, 0.046m, 0.035m, 0.026m, 0.022m, 0.016m, 0.014m },
             ["Hạ tầng kỹ thuật"] = new decimal[] { 0.122m, 0.082m, 0.062m, 0.047m, 0.037m, 0.029m, 0.024m, 0.017m, 0.014m }
         };
@@ -64,6 +66,8 @@ namespace AIE.Core.Models
         /// <summary>
         /// Hàm nội suy 2 chiều giữa các mốc quy mô theo công thức quy chuẩn:
         /// Nt = Nb - ((Nb - Na) / (Ga - Gb)) * (Gt - Gb)
+        /// Trả về giá trị nội suy chính xác (KHÔNG làm tròn bên trong) — nơi cần làm tròn
+        /// sẽ tự làm tròn theo ngữ cảnh (ví dụ DinhMucTT38Engine).
         /// </summary>
         public static decimal NoiSuy(decimal[] mocs, decimal[] tiLes, decimal quyMo)
         {
@@ -84,7 +88,7 @@ namespace AIE.Core.Models
                     if (ga == gb) return nb;
 
                     decimal nt = nb - ((nb - na) / (ga - gb)) * (quyMo - gb);
-                    return Math.Round(nt, 4);
+                    return nt;
                 }
             }
 

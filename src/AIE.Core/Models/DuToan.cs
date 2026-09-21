@@ -25,7 +25,7 @@ public class DuToan
     public string? ChuDauTu { get; set; }
 
     /// <summary>Địa điểm</summary>
-    public string DiaDiem { get; set; } = "Đà Nẵng";
+    public string DiaDiem { get; set; } = string.Empty;
 
     /// <summary>Vùng áp dụng (để tính lương, máy)</summary>
     public AIE.Core.Enums.Vung VungApDung { get; set; } = AIE.Core.Enums.Vung.VungII;
@@ -94,6 +94,15 @@ public class HangMuc
 
     /// <summary>Chi phí xây dựng tính riêng theo Bảng 3.8 TT 36 cho Hạng mục này</summary>
     public ChiPhiXayDung? ChiPhiXD { get; set; }
+
+    /// <summary>Hệ số điều chỉnh riêng của hạng mục theo Vật liệu (nhập tay trên sheet HeSo_DieuChinh)</summary>
+    public decimal HeSoVL { get; set; } = 1.0m;
+
+    /// <summary>Hệ số điều chỉnh riêng của hạng mục theo Nhân công</summary>
+    public decimal HeSoNC { get; set; } = 1.0m;
+
+    /// <summary>Hệ số điều chỉnh riêng của hạng mục theo Máy thi công</summary>
+    public decimal HeSoM { get; set; } = 1.0m;
 
     /// <summary>Tổng thành tiền Vật liệu của hạng mục</summary>
     public decimal TongVL => DanhSachCongTac.Sum(x => x.ThanhTienVL);

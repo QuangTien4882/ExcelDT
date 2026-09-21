@@ -28,6 +28,9 @@ public class CongTacThamDinh
     public string MaHieu { get; set; } = string.Empty;
     public string TenCongTac { get; set; } = string.Empty;
     public string DonVi { get; set; } = string.Empty;
+    public decimal KhoiLuong { get; set; }
+    public decimal DonGia { get; set; }
+    public decimal ThanhTien { get; set; }
     public List<HaoPhiThamDinh> DanhSachHaoPhi { get; set; } = new();
 }
 
@@ -99,3 +102,66 @@ public class VatTuGiaModel
     
     public decimal ChenhLechGia => (GiaChuan.HasValue) ? GiaDuToan - GiaChuan.Value : 0;
 }
+
+/// <summary>
+/// Thông tin hành chính & pháp lý để xuất Báo cáo Thẩm định theo TT 36/2026 và NĐ 10/2021
+/// </summary>
+public class ThongTinBaoCaoThamDinh
+{
+    public string TenDuAn { get; set; } = string.Empty;
+    public string TenHangMuc { get; set; } = string.Empty;
+    public string DiaDiem { get; set; } = string.Empty;
+    public string ChuDauTu { get; set; } = string.Empty;
+    public string DonViTuVan { get; set; } = string.Empty;
+    public string DonViThamDinh { get; set; } = string.Empty;
+    public string SoVanBan { get; set; } = string.Empty;
+    public System.DateTime NgayLap { get; set; } = System.DateTime.Today;
+    public string LoaiCongTrinh { get; set; } = "Công trình Dân dụng";
+    public string CapCongTrinh { get; set; } = "Cấp III";
+    public string BuocThietKe { get; set; } = "Thiết kế Bản vẽ thi công";
+
+    // Tỷ lệ % chi phí gián tiếp theo TT 36/2026/TT-BXD
+    public decimal TiLeCPC { get; set; } = 7.3m;
+    public decimal TiLeNhaTam { get; set; } = 1.2m;
+    public decimal TiLeKhongXacDinh { get; set; } = 2.0m;
+    public decimal TiLeTNCTTT { get; set; } = 5.5m;
+    public decimal TiLeVAT { get; set; } = 10.0m;
+
+    // Tỷ lệ % theo Thông tư 38/2026 & Thông tư 36/2026 cho Tổng hợp dự toán
+    public decimal TiLeQLDA { get; set; } = 3.2m;
+    public decimal TiLeTuVan { get; set; } = 6.5m;
+    public decimal TiLeChiPhiKhac { get; set; } = 2.5m;
+    public decimal TiLeDuPhong { get; set; } = 5.0m;
+
+    // Tùy chọn sheet xuất
+    public bool XuatTongHop { get; set; } = true;
+    public bool XuatChiPhiXD { get; set; } = true;
+    public bool XuatDoiChieuChiTiet { get; set; } = true;
+    public bool XuatGiaVatTu { get; set; } = true;
+}
+
+/// <summary>
+/// Đơn giá sau thẩm định cho 1 đơn vị công tác (chốt sau Giai đoạn 1)
+/// </summary>
+public class DonGiaThamDinhItem
+{
+    public string MaHieu { get; set; } = string.Empty;
+    public string TenCongTac { get; set; } = string.Empty;
+    public string DonVi { get; set; } = string.Empty;
+
+    // Đơn giá Dự toán gốc (cho 1 đơn vị sản phẩm)
+    public decimal DonGiaVL_DT { get; set; }
+    public decimal DonGiaNC_DT { get; set; }
+    public decimal DonGiaMay_DT { get; set; }
+    public decimal DonGiaTong_DT => DonGiaVL_DT + DonGiaNC_DT + DonGiaMay_DT;
+
+    // Đơn giá Thẩm định chuẩn (cho 1 đơn vị sản phẩm)
+    public decimal DonGiaVL_TD { get; set; }
+    public decimal DonGiaNC_TD { get; set; }
+    public decimal DonGiaMay_TD { get; set; }
+    public decimal DonGiaTong_TD => DonGiaVL_TD + DonGiaNC_TD + DonGiaMay_TD;
+
+    public string LuaChon { get; set; } = "Theo Thẩm định";
+    public bool CoSaiKhac { get; set; }
+}
+

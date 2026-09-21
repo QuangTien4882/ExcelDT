@@ -115,7 +115,7 @@ public class LapDuToanExcelService
                 continue;
             }
 
-            // Bỏ qua dòng TỔNG CỘNG toàn dự án hoặc dòng CỘNG cũ
+            // Bỏ qua dòng TỔNG CỘNG hoặc dòng CỘNG cũ
             if (ten.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) ||
                 ten.StartsWith("CỘNG TOÀN", StringComparison.OrdinalIgnoreCase) ||
                 ten.Equals("TỔNG HỢP", StringComparison.OrdinalIgnoreCase) ||
@@ -158,8 +158,8 @@ public class LapDuToanExcelService
                             STT = currentHMIndex,
                             RowIndex = r,
                             MaHangMuc = $"HM_{currentHMIndex:D2}",
-                            TenHangMuc = "Hạng mục chung",
-                            LoaiCongTrinh = "Dân dụng"
+                            TenHangMuc = "(Chưa phân loại)",
+                            LoaiCongTrinh = ""
                         };
                         duToan.DanhSachHangMuc.Add(currentHM);
                     }
@@ -188,8 +188,8 @@ public class LapDuToanExcelService
                     STT = currentHMIndex,
                     RowIndex = startRow > 6 ? startRow - 1 : 5,
                     MaHangMuc = $"HM_{currentHMIndex:D2}",
-                    TenHangMuc = "Hạng mục chung",
-                    LoaiCongTrinh = "Dân dụng"
+                    TenHangMuc = "(Chưa phân loại)",
+                    LoaiCongTrinh = ""
                 };
                 duToan.DanhSachHangMuc.Add(currentHM);
             }
@@ -301,9 +301,9 @@ public class LapDuToanExcelService
             }
         }
 
-        // Cập nhật dòng TỔNG CỘNG TOÀN DỰ ÁN
+        // Cập nhật dòng TỔNG CỘNG
         int totalRow = maxR + 1;
-        ws.Cells[totalRow, 3].Value2 = "TỔNG CỘNG TOÀN DỰ ÁN";
+        ws.Cells[totalRow, 3].Value2 = "TỔNG CỘNG";
         var validHms = duToan.DanhSachHangMuc.Where(h => h.RowIndex > 0).ToList();
         if (validHms.Count > 1)
         {
@@ -556,10 +556,10 @@ public class LapDuToanExcelService
                 }
             }
 
-            // Dòng TỔNG CỘNG TOÀN DỰ ÁN ở cuối bảng DuToan
+            // Dòng TỔNG CỘNG ở cuối bảng DuToan
             if (hmRows.Count > 0)
             {
-                ws.Cells[r, 3] = "TỔNG CỘNG TOÀN DỰ ÁN";
+                ws.Cells[r, 3] = "TỔNG CỘNG";
                 ws.Cells[r, 9].Formula = $"={string.Join("+", hmRows.Select(x => $"I{x}"))}";
                 ws.Cells[r, 10].Formula = $"={string.Join("+", hmRows.Select(x => $"J{x}"))}";
                 ws.Cells[r, 11].Formula = $"={string.Join("+", hmRows.Select(x => $"K{x}"))}";
@@ -689,12 +689,101 @@ public class LapDuToanExcelService
         if (lower.Contains("thoát nước") || lower.Contains("cấp nước") || lower.Contains("chiếu sáng") || lower.Contains("hạ tầng") || lower.Contains("cây xanh"))
             return "Hạ tầng kỹ thuật";
         if (lower.Contains("thủy lợi") || lower.Contains("kênh") || lower.Contains("mương") || lower.Contains("đê") || lower.Contains("đập") || lower.Contains("hồ chứa") || lower.Contains("nông nghiệp"))
-            return "Nông nghiệp & PTNT";
+            return DinhMucTT38Database.LoaiNongNghiepMoiTruong;
         if (lower.Contains("nhà xưởng") || lower.Contains("trạm biến áp") || lower.Contains("đường dây") || lower.Contains("công nghiệp") || lower.Contains("kho bãi"))
             return "Công nghiệp";
         if (lower.Contains("nhà") || lower.Contains("trường") || lower.Contains("trạm y tế") || lower.Contains("văn phòng") || lower.Contains("dân dụng") || lower.Contains("hội trường"))
             return "Dân dụng";
 
         return "Dân dụng";
+    }
+
+    /// <summary>
+    /// Đọc lại hệ số điều chỉnh riêng VL/NC/M theo từng hạng mục từ sheet HeSo_DieuChinh (nếu có).
+    /// Dòng 10: Hệ số VL, Dòng 11: Hệ số NC, Dòng 12: Hệ số M. Cột bắt đầu từ cột 3 (C).
+    /// </summary>
+    public void DocHeSoDieuChinhTuSheet(DuToan duToan)
+    {
+        if (duToan?.DanhSachHangMuc == null || duToan.DanhSachHangMuc.Count == 0) return;
+        try
+        {
+            var app = (Application)ExcelDnaUtil.Application;
+            var wb = app.ActiveWorkbook;
+            if (wb == null) return;
+
+            Worksheet ws = null;
+            foreach (Worksheet sheet in wb.Sheets)
+            {
+                if (string.Equals(sheet.Name, "HeSo_DieuChinh", StringComparison.OrdinalIgnoreCase))
+                {
+                    ws = sheet;
+                    break;
+                }
+            }
+            if (ws == null) return;
+
+            int nHm = duToan.DanhSachHangMuc.Count;
+            for (int i = 0; i < nHm; i++)
+            {
+                int col = 3 + i;
+                var hm = duToan.DanhSachHangMuc[i];
+
+                if (hm.ChiPhiXD == null) hm.ChiPhiXD = new ChiPhiXayDung();
+                decimal cpc = 0m, tt = 0m, tl = 0m, gtgt = 0m, lt = 0m;
+                var valCPC = ws.Cells[5, col]?.Value2;
+                if (valCPC != null && decimal.TryParse(valCPC.ToString(), out cpc) && cpc > 0)
+                {
+                    hm.ChiPhiXD.TiLeCPC = cpc;
+                }
+                var valTT = ws.Cells[6, col]?.Value2;
+                if (valTT != null && decimal.TryParse(valTT.ToString(), out tt) && tt >= 0)
+                {
+                    hm.ChiPhiXD.TiLeTT = tt;
+                }
+                var valTNCTTT = ws.Cells[7, col]?.Value2;
+                if (valTNCTTT != null && decimal.TryParse(valTNCTTT.ToString(), out tl) && tl > 0)
+                {
+                    hm.ChiPhiXD.TiLeTNCTTT = tl;
+                }
+                var valGTGT = ws.Cells[8, col]?.Value2;
+                if (valGTGT != null && decimal.TryParse(valGTGT.ToString(), out gtgt) && gtgt >= 0)
+                {
+                    hm.ChiPhiXD.TiLeGTGT = gtgt;
+                }
+                var valLT = ws.Cells[9, col]?.Value2;
+                if (valLT != null && decimal.TryParse(valLT.ToString(), out lt) && lt >= 0)
+                {
+                    hm.ChiPhiXD.TiLeNhaTam = lt;
+                }
+
+                var valVL = ws.Cells[10, col]?.Value2;
+                if (valVL != null)
+                {
+                    if (decimal.TryParse(valVL.ToString(), out decimal hsVL) && hsVL > 0)
+                    {
+                        hm.HeSoVL = hsVL;
+                    }
+                }
+
+                var valNC = ws.Cells[11, col]?.Value2;
+                if (valNC != null)
+                {
+                    if (decimal.TryParse(valNC.ToString(), out decimal hsNC) && hsNC > 0)
+                    {
+                        hm.HeSoNC = hsNC;
+                    }
+                }
+
+                var valM = ws.Cells[12, col]?.Value2;
+                if (valM != null)
+                {
+                    if (decimal.TryParse(valM.ToString(), out decimal hsM) && hsM > 0)
+                    {
+                        hm.HeSoM = hsM;
+                    }
+                }
+            }
+        }
+        catch { }
     }
 }

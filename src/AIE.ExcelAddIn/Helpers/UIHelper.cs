@@ -414,4 +414,24 @@ public static class UIHelper
 
         return string.Join(" ", res);
     }
+
+    /// <summary>
+    /// Gắn hành vi tự động chuyển đổi ký tự '.' trên bàn phím số Numpad thành dấu phân cách thập phân thực tế (',')
+    /// giúp người dùng gõ số thực trên TextBox/Control luôn đúng chuẩn và không bị lỗi.
+    /// </summary>
+    public static void AttachDecimalInputBehavior(Control control)
+    {
+        if (control == null) return;
+        control.KeyPress += (s, e) =>
+        {
+            if (e.KeyChar == '.' || e.KeyChar == ',')
+            {
+                string decSep = System.Globalization.CultureInfo.CurrentCulture.NumberFormat.NumberDecimalSeparator;
+                if (!string.IsNullOrEmpty(decSep))
+                {
+                    e.KeyChar = decSep[0];
+                }
+            }
+        };
+    }
 }
