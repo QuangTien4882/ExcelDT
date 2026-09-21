@@ -16,10 +16,6 @@ namespace AIE.ExcelAddIn.Forms
     {
         private TextBox txtSearch;
         private Button btnSearch;
-        private Button btnInsert;
-        private CheckBox chkAutoClose;
-        private Button btnClose;
-        private Label lblStatus;
         private Button btnPhuLuc;
         private ContextMenuStrip menuPhuLuc;
         private DataGridView dgvCongTac;
@@ -33,7 +29,6 @@ namespace AIE.ExcelAddIn.Forms
         private string _settingsPath;
         private string _initialSearchKeyword = "";
         private int _targetRow = -1;
-        private int _firstInsertedRow = -1;
 
         public TraCuuDinhMucForm()
         {
@@ -90,8 +85,8 @@ namespace AIE.ExcelAddIn.Forms
             };
 
             txtSearch = new TextBox { 
-                Location = new Point(95, 17),
-                Width = 230,
+                Location = new Point(105, 17),
+                Width = 320,
                 Font = new Font("Be Vietnam Pro", 9.5F),
                 BorderStyle = BorderStyle.FixedSingle
             };
@@ -127,9 +122,9 @@ namespace AIE.ExcelAddIn.Forms
             
             btnSearch = new Button { 
                 Text = "🔍", 
-                Location = new Point(335, 15),
-                Width = 36,
-                Height = 30,
+                Location = new Point(435, 15),
+                Width = 40,
+                Height = 28,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.FromArgb(0, 168, 255),
                 ForeColor = Color.White,
@@ -141,31 +136,6 @@ namespace AIE.ExcelAddIn.Forms
             tt.SetToolTip(btnSearch, "Tìm kiếm định mức");
             btnSearch.Click += (s, e) => FilterData();
 
-            btnInsert = new Button {
-                Text = "📥 Chèn vào dự toán",
-                Location = new Point(380, 14),
-                Width = 150,
-                Height = 32,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.FromArgb(46, 204, 113),
-                ForeColor = Color.White,
-                Font = new Font("Be Vietnam Pro SemiBold", 9.5F),
-                Cursor = Cursors.Hand
-            };
-            btnInsert.FlatAppearance.BorderSize = 0;
-            tt.SetToolTip(btnInsert, "Chèn các công tác đang chọn vào bảng dự toán Excel (Enter)");
-            btnInsert.Click += (s, e) => InsertSelectedCongTacIntoExcel();
-
-            chkAutoClose = new CheckBox {
-                Text = "Đóng sau khi chèn",
-                Location = new Point(540, 20),
-                AutoSize = true,
-                Font = new Font("Be Vietnam Pro", 9F),
-                ForeColor = Color.FromArgb(47, 54, 64),
-                Checked = false
-            };
-            tt.SetToolTip(chkAutoClose, "Nếu chọn: Tự động đóng bảng tra sau khi chèn công tác");
-
             var lblPhuLuc = new Label { 
                 Text = "Bộ định mức:", 
                 AutoSize = true, 
@@ -175,27 +145,14 @@ namespace AIE.ExcelAddIn.Forms
 
             btnPhuLuc = new Button {
                 Text = "Chọn Phụ Lục ▼",
-                Location = new Point(130, 14),
-                Width = 160,
+                Location = new Point(130, 15),
+                Width = 200,
                 Height = 32,
                 FlatStyle = FlatStyle.Flat,
                 BackColor = Color.White,
                 Cursor = Cursors.Hand
             };
             btnPhuLuc.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
-
-            btnClose = new Button {
-                Text = "❌ Đóng (Esc)",
-                Width = 110,
-                Height = 32,
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.White,
-                ForeColor = Color.FromArgb(47, 54, 64),
-                Font = new Font("Be Vietnam Pro", 9F),
-                Cursor = Cursors.Hand
-            };
-            btnClose.FlatAppearance.BorderColor = Color.FromArgb(200, 200, 200);
-            btnClose.Click += (s, e) => this.Close();
 
             menuPhuLuc = new ContextMenuStrip();
             string[] phuLucs = { 
@@ -230,20 +187,16 @@ namespace AIE.ExcelAddIn.Forms
             
             btnPhuLuc.Click += (s, e) => menuPhuLuc.Show(btnPhuLuc, new Point(0, btnPhuLuc.Height));
             
+            pnlTop.Controls.Add(lblPhuLuc);
+            pnlTop.Controls.Add(btnPhuLuc);
             pnlTop.Controls.Add(lblSearch);
             pnlTop.Controls.Add(txtSearch);
             pnlTop.Controls.Add(btnSearch);
-            pnlTop.Controls.Add(btnInsert);
-            pnlTop.Controls.Add(chkAutoClose);
-            pnlTop.Controls.Add(lblPhuLuc);
-            pnlTop.Controls.Add(btnPhuLuc);
-            pnlTop.Controls.Add(btnClose);
 
-            // Tính vị trí PhuLuc & Close controls bám sát bên phải
+            // Tính vị trí PhuLuc controls bám sát bên phải
             Action layoutSearch = () => {
                 int right = pnlTop.ClientSize.Width - 15;
-                btnClose.Location = new Point(right - btnClose.Width, 14);
-                btnPhuLuc.Location = new Point(btnClose.Left - btnPhuLuc.Width - 10, 14);
+                btnPhuLuc.Location = new Point(right - btnPhuLuc.Width, 15);
                 lblPhuLuc.Location = new Point(btnPhuLuc.Left - lblPhuLuc.Width - 10, 20);
             };
             pnlTop.Resize += (s, e) => layoutSearch();
@@ -255,7 +208,7 @@ namespace AIE.ExcelAddIn.Forms
                 Dock = DockStyle.Fill,
                 Orientation = Orientation.Horizontal,
                 FixedPanel = FixedPanel.None,
-                SplitterDistance = (int)((workingArea.Height * 0.9 - 95) * 0.6),
+                SplitterDistance = (int)((workingArea.Height * 0.9 - 60) * 0.6),
                 SplitterWidth = 6,
                 BackColor = Color.FromArgb(200, 200, 200)
             };
@@ -263,12 +216,17 @@ namespace AIE.ExcelAddIn.Forms
             // DGV Công tác
             dgvCongTac = CreateModernGrid();
             dgvCongTac.SelectionChanged += DgvCongTac_SelectionChanged;
-            dgvCongTac.CellDoubleClick += DgvCongTac_CellDoubleClick;
+            dgvCongTac.CellDoubleClick += (s, e) => {
+                if (e.RowIndex >= 0)
+                {
+                    ChonDinhMucVaDong();
+                }
+            };
             dgvCongTac.KeyDown += (s, e) => {
                 if (e.KeyCode == Keys.Enter)
                 {
                     e.Handled = true;
-                    InsertSelectedCongTacIntoExcel();
+                    ChonDinhMucVaDong();
                 }
             };
             SetupCongTacColumns();
@@ -285,22 +243,7 @@ namespace AIE.ExcelAddIn.Forms
             pnlGrid2.Controls.Add(dgvHaoPhi);
             splitContainer.Panel2.Controls.Add(pnlGrid2);
 
-            // --- BOTTOM PANEL (STATUS) ---
-            var pnlBottom = new Panel { Dock = DockStyle.Bottom, Height = 32, BackColor = Color.FromArgb(240, 243, 246) };
-            pnlBottom.Paint += (s, e) => {
-                ControlPaint.DrawBorder(e.Graphics, pnlBottom.ClientRectangle, Color.FromArgb(220, 221, 225), ButtonBorderStyle.Solid);
-            };
-            lblStatus = new Label {
-                Text = "💡 Mẹo: Giữ Shift hoặc Ctrl để chọn nhiều công tác rồi bấm 'Chèn vào dự toán'. Bấm Esc để đóng bảng.",
-                AutoSize = true,
-                Location = new Point(15, 7),
-                Font = new Font("Be Vietnam Pro", 8.5F),
-                ForeColor = Color.FromArgb(90, 100, 110)
-            };
-            pnlBottom.Controls.Add(lblStatus);
-
             this.Controls.Add(splitContainer);
-            this.Controls.Add(pnlBottom);
             this.Controls.Add(pnlTop);
 
             this.Load += TraCuuDinhMucForm_Load;
@@ -316,7 +259,7 @@ namespace AIE.ExcelAddIn.Forms
                 AllowUserToAddRows = false,
                 ReadOnly = true,
                 SelectionMode = DataGridViewSelectionMode.FullRowSelect,
-                MultiSelect = true,
+                MultiSelect = false,
                 RowHeadersVisible = false,
                 BackgroundColor = Color.White,
                 BorderStyle = BorderStyle.FixedSingle,
@@ -348,161 +291,102 @@ namespace AIE.ExcelAddIn.Forms
             dgvCongTac.Columns.Add(colDonVi);
         }
 
-        private void DgvCongTac_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
+        private void ChonDinhMucVaDong()
         {
-            if (e.RowIndex >= 0)
+            if (dgvCongTac.SelectedRows.Count > 0)
             {
-                InsertSelectedCongTacIntoExcel();
+                var congTac = dgvCongTac.SelectedRows[0].DataBoundItem as CongTacXayDung;
+                if (congTac != null)
+                {
+                    GanDinhMucVaoExcel(congTac);
+                    this.Close();
+                }
             }
         }
 
-        private void InsertSelectedCongTacIntoExcel()
+        private void GanDinhMucVaoExcel(CongTacXayDung congTac)
         {
-            var selectedRows = dgvCongTac.SelectedRows.Cast<DataGridViewRow>()
-                                .OrderBy(r => r.Index)
-                                .ToList();
-
-            if (selectedRows.Count == 0)
-            {
-                if (dgvCongTac.CurrentRow != null)
-                {
-                    selectedRows.Add(dgvCongTac.CurrentRow);
-                }
-                else
-                {
-                    MessageBox.Show("Vui lòng chọn ít nhất một công tác để chèn.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    return;
-                }
-            }
-
-            var listCongTac = selectedRows
-                                .Select(r => r.DataBoundItem as CongTacXayDung)
-                                .Where(ct => ct != null)
-                                .ToList();
-
-            if (listCongTac.Count == 0) return;
-
             try
             {
                 var app = (Microsoft.Office.Interop.Excel.Application)ExcelDna.Integration.ExcelDnaUtil.Application;
                 var ws = app.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
                 if (ws == null) return;
 
-                // Tạm thời dừng AutoLookup để không kích hoạt vòng lặp sự kiện
-                SheetAutoLookupService.IsSuspended = true;
-                bool oldUpdating = app.ScreenUpdating;
-                app.ScreenUpdating = false;
-
-                try
+                int curRow = _targetRow;
+                if (curRow <= 0)
                 {
-                    int curRow = _targetRow;
-                    if (curRow <= 0)
+                    var activeCell = app.ActiveCell;
+                    curRow = (activeCell != null && activeCell.Row >= 6) ? activeCell.Row : 6;
+                }
+
+                // Kiểm tra xem dòng hiện tại đã có dữ liệu hoặc là dòng tổng cộng chưa
+                string cellB = ws.Cells[curRow, 2]?.Value2?.ToString()?.Trim() ?? "";
+                string cellC = ws.Cells[curRow, 3]?.Value2?.ToString()?.Trim() ?? "";
+
+                int targetRow = curRow;
+                if (!string.IsNullOrEmpty(cellB) || cellC.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Nếu đã có dữ liệu hoặc tiêu đề tổng cộng, chèn dòng mới ngay phía dưới
+                    targetRow = curRow + 1;
+                    Microsoft.Office.Interop.Excel.Range rowToInsert = ws.Rows[targetRow] as Microsoft.Office.Interop.Excel.Range;
+                    rowToInsert?.Insert(Microsoft.Office.Interop.Excel.XlInsertShiftDirection.xlShiftDown);
+                }
+
+                // Tính STT
+                int stt = 1;
+                for (int i = targetRow - 1; i >= 5; i--)
+                {
+                    object prevCell = ws.Cells[i, 1]?.Value2;
+                    int prevStt = 0;
+                    if (prevCell != null && int.TryParse(prevCell.ToString(), out prevStt))
                     {
-                        var activeCell = app.ActiveCell;
-                        curRow = (activeCell != null && activeCell.Row >= 6) ? activeCell.Row : 6;
-                    }
-
-                    int targetRow = curRow;
-                    int startInsertedRow = targetRow;
-                    if (_firstInsertedRow <= 0)
-                    {
-                        _firstInsertedRow = startInsertedRow;
-                    }
-
-                    for (int i = 0; i < listCongTac.Count; i++)
-                    {
-                        var congTac = listCongTac[i];
-
-                        string cellB = ws.Cells[targetRow, 2]?.Value2?.ToString()?.Trim() ?? "";
-                        string cellC = ws.Cells[targetRow, 3]?.Value2?.ToString()?.Trim() ?? "";
-
-                        // Nếu không phải công tác đầu tiên HOẶC dòng hiện tại đã có dữ liệu / tiêu đề
-                        if (i > 0 || (!string.IsNullOrEmpty(cellB) || !string.IsNullOrEmpty(cellC)))
-                        {
-                            if (i > 0 || cellC.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || !string.IsNullOrEmpty(cellB))
-                            {
-                                if (i > 0) targetRow++;
-                                Microsoft.Office.Interop.Excel.Range rowToInsert = ws.Rows[targetRow] as Microsoft.Office.Interop.Excel.Range;
-                                rowToInsert?.Insert(Microsoft.Office.Interop.Excel.XlInsertShiftDirection.xlShiftDown);
-                            }
-                        }
-
-                        // Tính STT tạm
-                        int stt = 1;
-                        for (int rPrev = targetRow - 1; rPrev >= 5; rPrev--)
-                        {
-                            object prevCell = ws.Cells[rPrev, 1]?.Value2;
-                            if (prevCell != null && int.TryParse(prevCell.ToString(), out int prevStt))
-                            {
-                                stt = prevStt + 1;
-                                break;
-                            }
-                        }
-
-                        ws.Cells[targetRow, 1].Value2 = stt;
-                        ws.Cells[targetRow, 2].Value2 = congTac.MaHieu;
-                        ws.Cells[targetRow, 3].Value2 = congTac.TenCongTac;
-                        ws.Cells[targetRow, 4].Value2 = congTac.DonVi;
-
-                        // Công thức tính Thành tiền: VL (I), NC (J), Máy (K)
-                        ws.Cells[targetRow, 9].Formula = $"=ROUND(E{targetRow}*F{targetRow}, 0)";
-                        ws.Cells[targetRow, 10].Formula = $"=ROUND(E{targetRow}*G{targetRow}, 0)";
-                        ws.Cells[targetRow, 11].Formula = $"=ROUND(E{targetRow}*H{targetRow}, 0)";
-
-                        // Định dạng dòng công tác
-                        var rowRange = ws.Range[ws.Cells[targetRow, 1], ws.Cells[targetRow, 11]];
-                        rowRange.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
-                        rowRange.VerticalAlignment = Microsoft.Office.Interop.Excel.XlVAlign.xlVAlignCenter;
-                        rowRange.Font.Bold = false;
-                        rowRange.Interior.ColorIndex = Microsoft.Office.Interop.Excel.XlColorIndex.xlColorIndexNone;
-
-                        ws.Cells[targetRow, 1].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                        ws.Cells[targetRow, 2].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                        ws.Cells[targetRow, 3].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignJustify;
-                        ws.Cells[targetRow, 3].WrapText = true;
-                        ws.Cells[targetRow, 4].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-
-                        ExcelFormatHelper.ApplyQuantityFormat(ws.Cells[targetRow, 5], 2);
-                        ExcelFormatHelper.ApplyIntegerFormat(ws.Range[ws.Cells[targetRow, 6], ws.Cells[targetRow, 11]]);
-                        ws.Range[ws.Cells[targetRow, 5], ws.Cells[targetRow, 11]].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignRight;
-                    }
-
-                    // Đóng khung toàn bộ bảng từ dòng 4 đến dòng vừa chèn
-                    var wholeTable = ws.Range[ws.Cells[4, 1], ws.Cells[targetRow, 11]];
-                    wholeTable.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
-
-                    // Tự động đánh số thứ tự (STT) lại liên tục, chuẩn xác cho toàn bộ các dòng công tác
-                    LapDuToanExcelService.DanhLaiSTTCongTac(ws);
-
-                    // Cập nhật _targetRow chuẩn cho lần chèn tiếp theo
-                    _targetRow = targetRow + 1;
-
-                    if (lblStatus != null)
-                    {
-                        lblStatus.Text = $"✅ Đã chèn {listCongTac.Count} công tác vào dòng {startInsertedRow} - {targetRow}! Tiếp tục chọn hoặc bấm Esc để đóng.";
-                        lblStatus.ForeColor = Color.FromArgb(39, 174, 96);
-                    }
-
-                    if (chkAutoClose != null && chkAutoClose.Checked)
-                    {
-                        this.Close();
-                    }
-                    else
-                    {
-                        txtSearch.Focus();
-                        txtSearch.SelectAll();
+                        stt = prevStt + 1;
+                        break;
                     }
                 }
-                finally
-                {
-                    app.ScreenUpdating = oldUpdating;
-                    SheetAutoLookupService.IsSuspended = false;
-                }
+
+                ws.Cells[targetRow, 1].Value2 = stt;
+                ws.Cells[targetRow, 2].Value2 = congTac.MaHieu;
+                ws.Cells[targetRow, 3].Value2 = congTac.TenCongTac;
+                ws.Cells[targetRow, 4].Value2 = congTac.DonVi;
+
+                // Công thức tính Thành tiền: VL (I), NC (J), Máy (K)
+                ws.Cells[targetRow, 9].Formula = $"=ROUND(E{targetRow}*F{targetRow}, 0)";
+                ws.Cells[targetRow, 10].Formula = $"=ROUND(E{targetRow}*G{targetRow}, 0)";
+                ws.Cells[targetRow, 11].Formula = $"=ROUND(E{targetRow}*H{targetRow}, 0)";
+
+                // Định dạng dòng công tác
+                var rowRange = ws.Range[ws.Cells[targetRow, 1], ws.Cells[targetRow, 11]];
+                rowRange.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
+                rowRange.VerticalAlignment = Microsoft.Office.Interop.Excel.XlVAlign.xlVAlignCenter;
+                rowRange.Font.Bold = false;
+                rowRange.Interior.ColorIndex = Microsoft.Office.Interop.Excel.XlColorIndex.xlColorIndexNone;
+
+                ws.Cells[targetRow, 1].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+                ws.Cells[targetRow, 2].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+                ws.Cells[targetRow, 3].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignJustify;
+                ws.Cells[targetRow, 3].WrapText = true;
+                ws.Cells[targetRow, 4].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+
+                ExcelFormatHelper.ApplyQuantityFormat(ws.Cells[targetRow, 5], 2);
+                ExcelFormatHelper.ApplyIntegerFormat(ws.Range[ws.Cells[targetRow, 6], ws.Cells[targetRow, 11]]);
+                ws.Range[ws.Cells[targetRow, 5], ws.Cells[targetRow, 11]].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignRight;
+
+                // Đóng khung toàn bộ bảng từ dòng 4 đến dòng hiện tại
+                var wholeTable = ws.Range[ws.Cells[4, 1], ws.Cells[targetRow, 11]];
+                wholeTable.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
+
+                // Tự động đánh số thứ tự (STT) lại liên tục, chuẩn xác cho toàn bộ các dòng công tác
+                LapDuToanExcelService.DanhLaiSTTCongTac(ws);
+
+                // Auto-Focus: Chọn ngay ô Khối lượng (cột 5, E) để người dùng có thể nhập khối lượng ngay tức thì
+                ws.Activate();
+                Microsoft.Office.Interop.Excel.Range klCell = ws.Cells[targetRow, 5] as Microsoft.Office.Interop.Excel.Range;
+                klCell?.Select();
             }
             catch (Exception ex)
             {
-                SheetAutoLookupService.IsSuspended = false;
-                MessageBox.Show($"Không thể chèn vào Excel: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                MessageBox.Show($"Không thể gán vào Excel: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
 
@@ -581,11 +465,6 @@ namespace AIE.ExcelAddIn.Forms
             _bsCongTac.DataSource = filtered;
         }
 
-        /// <summary>
-        /// Tìm kiếm thông minh: tách từ khoá thành các từ rời, yêu cầu TẤT CẢ các từ đều
-        /// xuất hiện trong chuỗi ghép (MaHieu + TenCongTac), không phân biệt thứ tự.
-        /// Ví dụ: "máy đào bánh xích" sẽ tìm thấy "Máy đào 1 gầu, bánh xích - dung tích gầu: 0,4m3"
-        /// </summary>
         private static bool MatchAllKeywords(string keyword, params string[] fields)
         {
             var combined = string.Join(" ", fields.Where(f => f != null)).ToLower();
@@ -626,18 +505,6 @@ namespace AIE.ExcelAddIn.Forms
         private void TraCuuDinhMucForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             SaveColumnSettings();
-            if (_firstInsertedRow > 0)
-            {
-                try
-                {
-                    var app = (Microsoft.Office.Interop.Excel.Application)ExcelDna.Integration.ExcelDnaUtil.Application;
-                    var ws = app.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
-                    ws?.Activate();
-                    var klCell = ws?.Cells[_firstInsertedRow, 5] as Microsoft.Office.Interop.Excel.Range;
-                    klCell?.Select();
-                }
-                catch { }
-            }
         }
 
         // --- SAVE / LOAD COLUMN WIDTHS ---
