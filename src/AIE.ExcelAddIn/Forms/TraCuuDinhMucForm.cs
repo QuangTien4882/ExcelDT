@@ -29,6 +29,7 @@ namespace AIE.ExcelAddIn.Forms
         private string _settingsPath;
         private string _initialSearchKeyword = "";
         private int _targetRow = -1;
+        private int _firstInsertedRow = -1;
 
         public TraCuuDinhMucForm()
         {
@@ -299,7 +300,9 @@ namespace AIE.ExcelAddIn.Forms
                 if (congTac != null)
                 {
                     GanDinhMucVaoExcel(congTac);
-                    this.Close();
+                    // Không tự động tắt form sau mỗi lần gán, chỉ tắt khi người dùng đóng bảng hoặc bấm ESC
+                    txtSearch.Focus();
+                    txtSearch.SelectAll();
                 }
             }
         }
@@ -312,80 +315,96 @@ namespace AIE.ExcelAddIn.Forms
                 var ws = app.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
                 if (ws == null) return;
 
-                int curRow = _targetRow;
-                if (curRow <= 0)
-                {
-                    var activeCell = app.ActiveCell;
-                    curRow = (activeCell != null && activeCell.Row >= 6) ? activeCell.Row : 6;
-                }
+                SheetAutoLookupService.IsSuspended = true;
+                bool oldUpdating = app.ScreenUpdating;
+                app.ScreenUpdating = false;
 
-                // Kiểm tra xem dòng hiện tại đã có dữ liệu hoặc là dòng tổng cộng chưa
-                string cellB = ws.Cells[curRow, 2]?.Value2?.ToString()?.Trim() ?? "";
-                string cellC = ws.Cells[curRow, 3]?.Value2?.ToString()?.Trim() ?? "";
-
-                int targetRow = curRow;
-                if (!string.IsNullOrEmpty(cellB) || cellC.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase))
+                try
                 {
-                    // Nếu đã có dữ liệu hoặc tiêu đề tổng cộng, chèn dòng mới ngay phía dưới
-                    targetRow = curRow + 1;
-                    Microsoft.Office.Interop.Excel.Range rowToInsert = ws.Rows[targetRow] as Microsoft.Office.Interop.Excel.Range;
-                    rowToInsert?.Insert(Microsoft.Office.Interop.Excel.XlInsertShiftDirection.xlShiftDown);
-                }
-
-                // Tính STT
-                int stt = 1;
-                for (int i = targetRow - 1; i >= 5; i--)
-                {
-                    object prevCell = ws.Cells[i, 1]?.Value2;
-                    int prevStt = 0;
-                    if (prevCell != null && int.TryParse(prevCell.ToString(), out prevStt))
+                    int curRow = _targetRow;
+                    if (curRow <= 0)
                     {
-                        stt = prevStt + 1;
-                        break;
+                        var activeCell = app.ActiveCell;
+                        curRow = (activeCell != null && activeCell.Row >= 6) ? activeCell.Row : 6;
                     }
+
+                    // Kiểm tra xem dòng hiện tại đã có dữ liệu hoặc là dòng tổng cộng chưa
+                    string cellB = ws.Cells[curRow, 2]?.Value2?.ToString()?.Trim() ?? "";
+                    string cellC = ws.Cells[curRow, 3]?.Value2?.ToString()?.Trim() ?? "";
+
+                    int targetRow = curRow;
+                    if (!string.IsNullOrEmpty(cellB) || cellC.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase))
+                    {
+                        // Nếu đã có dữ liệu hoặc tiêu đề tổng cộng, chèn dòng mới ngay phía dưới
+                        targetRow = curRow + 1;
+                        Microsoft.Office.Interop.Excel.Range rowToInsert = ws.Rows[targetRow] as Microsoft.Office.Interop.Excel.Range;
+                        rowToInsert?.Insert(Microsoft.Office.Interop.Excel.XlInsertShiftDirection.xlShiftDown);
+                    }
+
+                    // Lưu lại dòng đầu tiên được chèn để focus khi form đóng
+                    if (_firstInsertedRow <= 0)
+                    {
+                        _firstInsertedRow = targetRow;
+                    }
+
+                    // Tính STT
+                    int stt = 1;
+                    for (int i = targetRow - 1; i >= 5; i--)
+                    {
+                        object prevCell = ws.Cells[i, 1]?.Value2;
+                        if (prevCell != null && int.TryParse(prevCell.ToString(), out int prevStt))
+                        {
+                            stt = prevStt + 1;
+                            break;
+                        }
+                    }
+
+                    ws.Cells[targetRow, 1].Value2 = stt;
+                    ws.Cells[targetRow, 2].Value2 = congTac.MaHieu;
+                    ws.Cells[targetRow, 3].Value2 = congTac.TenCongTac;
+                    ws.Cells[targetRow, 4].Value2 = congTac.DonVi;
+
+                    // Công thức tính Thành tiền: VL (I), NC (J), Máy (K)
+                    ws.Cells[targetRow, 9].Formula = $"=ROUND(E{targetRow}*F{targetRow}, 0)";
+                    ws.Cells[targetRow, 10].Formula = $"=ROUND(E{targetRow}*G{targetRow}, 0)";
+                    ws.Cells[targetRow, 11].Formula = $"=ROUND(E{targetRow}*H{targetRow}, 0)";
+
+                    // Định dạng dòng công tác
+                    var rowRange = ws.Range[ws.Cells[targetRow, 1], ws.Cells[targetRow, 11]];
+                    rowRange.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
+                    rowRange.VerticalAlignment = Microsoft.Office.Interop.Excel.XlVAlign.xlVAlignCenter;
+                    rowRange.Font.Bold = false;
+                    rowRange.Interior.ColorIndex = Microsoft.Office.Interop.Excel.XlColorIndex.xlColorIndexNone;
+
+                    ws.Cells[targetRow, 1].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+                    ws.Cells[targetRow, 2].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+                    ws.Cells[targetRow, 3].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignLeft;
+                    ws.Cells[targetRow, 3].WrapText = true;
+                    ws.Cells[targetRow, 4].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
+
+                    ExcelFormatHelper.ApplyQuantityFormat(ws.Cells[targetRow, 5], 2);
+                    ExcelFormatHelper.ApplyIntegerFormat(ws.Range[ws.Cells[targetRow, 6], ws.Cells[targetRow, 11]]);
+                    ws.Range[ws.Cells[targetRow, 5], ws.Cells[targetRow, 11]].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignRight;
+
+                    // Đóng khung toàn bộ bảng từ dòng 4 đến dòng hiện tại
+                    var wholeTable = ws.Range[ws.Cells[4, 1], ws.Cells[targetRow, 11]];
+                    wholeTable.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
+
+                    // Tự động đánh số thứ tự (STT) lại liên tục, chuẩn xác cho toàn bộ các dòng công tác
+                    LapDuToanExcelService.DanhLaiSTTCongTac(ws);
+
+                    // Cập nhật vị trí đích cho lần gán tiếp theo
+                    _targetRow = targetRow + 1;
                 }
-
-                ws.Cells[targetRow, 1].Value2 = stt;
-                ws.Cells[targetRow, 2].Value2 = congTac.MaHieu;
-                ws.Cells[targetRow, 3].Value2 = congTac.TenCongTac;
-                ws.Cells[targetRow, 4].Value2 = congTac.DonVi;
-
-                // Công thức tính Thành tiền: VL (I), NC (J), Máy (K)
-                ws.Cells[targetRow, 9].Formula = $"=ROUND(E{targetRow}*F{targetRow}, 0)";
-                ws.Cells[targetRow, 10].Formula = $"=ROUND(E{targetRow}*G{targetRow}, 0)";
-                ws.Cells[targetRow, 11].Formula = $"=ROUND(E{targetRow}*H{targetRow}, 0)";
-
-                // Định dạng dòng công tác
-                var rowRange = ws.Range[ws.Cells[targetRow, 1], ws.Cells[targetRow, 11]];
-                rowRange.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
-                rowRange.VerticalAlignment = Microsoft.Office.Interop.Excel.XlVAlign.xlVAlignCenter;
-                rowRange.Font.Bold = false;
-                rowRange.Interior.ColorIndex = Microsoft.Office.Interop.Excel.XlColorIndex.xlColorIndexNone;
-
-                ws.Cells[targetRow, 1].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                ws.Cells[targetRow, 2].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-                ws.Cells[targetRow, 3].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignJustify;
-                ws.Cells[targetRow, 3].WrapText = true;
-                ws.Cells[targetRow, 4].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignCenter;
-
-                ExcelFormatHelper.ApplyQuantityFormat(ws.Cells[targetRow, 5], 2);
-                ExcelFormatHelper.ApplyIntegerFormat(ws.Range[ws.Cells[targetRow, 6], ws.Cells[targetRow, 11]]);
-                ws.Range[ws.Cells[targetRow, 5], ws.Cells[targetRow, 11]].HorizontalAlignment = Microsoft.Office.Interop.Excel.XlHAlign.xlHAlignRight;
-
-                // Đóng khung toàn bộ bảng từ dòng 4 đến dòng hiện tại
-                var wholeTable = ws.Range[ws.Cells[4, 1], ws.Cells[targetRow, 11]];
-                wholeTable.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
-
-                // Tự động đánh số thứ tự (STT) lại liên tục, chuẩn xác cho toàn bộ các dòng công tác
-                LapDuToanExcelService.DanhLaiSTTCongTac(ws);
-
-                // Auto-Focus: Chọn ngay ô Khối lượng (cột 5, E) để người dùng có thể nhập khối lượng ngay tức thì
-                ws.Activate();
-                Microsoft.Office.Interop.Excel.Range klCell = ws.Cells[targetRow, 5] as Microsoft.Office.Interop.Excel.Range;
-                klCell?.Select();
+                finally
+                {
+                    app.ScreenUpdating = oldUpdating;
+                    SheetAutoLookupService.IsSuspended = false;
+                }
             }
             catch (Exception ex)
             {
+                SheetAutoLookupService.IsSuspended = false;
                 MessageBox.Show($"Không thể gán vào Excel: {ex.Message}", "Lỗi", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
@@ -505,6 +524,18 @@ namespace AIE.ExcelAddIn.Forms
         private void TraCuuDinhMucForm_FormClosing(object sender, FormClosingEventArgs e)
         {
             SaveColumnSettings();
+            if (_firstInsertedRow > 0)
+            {
+                try
+                {
+                    var app = (Microsoft.Office.Interop.Excel.Application)ExcelDna.Integration.ExcelDnaUtil.Application;
+                    var ws = app.ActiveSheet as Microsoft.Office.Interop.Excel.Worksheet;
+                    ws?.Activate();
+                    var klCell = ws?.Cells[_firstInsertedRow, 5] as Microsoft.Office.Interop.Excel.Range;
+                    klCell?.Select();
+                }
+                catch { }
+            }
         }
 
         // --- SAVE / LOAD COLUMN WIDTHS ---
