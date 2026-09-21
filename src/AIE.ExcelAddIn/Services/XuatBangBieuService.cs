@@ -2391,14 +2391,16 @@ namespace AIE.ExcelAddIn.Services
             ws.Cells[3, 3] = "Tên công tác / Danh mục vật tư";
             ws.Cells[3, 4] = "Đơn vị";
             ws.Cells[3, 5] = "Định mức";
-            ws.Cells[3, 6] = "Đơn giá (đồng)";
-            ws.Cells[3, 7] = "Thành tiền (đồng)";
+            ws.Cells[3, 6] = "Đơn giá\n(đồng)";
+            ws.Cells[3, 7] = "Thành tiền\n(đồng)";
 
             var headerRange = ws.Range[ws.Cells[3, 1], ws.Cells[3, 7]];
             headerRange.Font.Bold = true;
             headerRange.HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            headerRange.VerticalAlignment = XlVAlign.xlVAlignCenter;
+            headerRange.VerticalAlignment = XlVAlign.xlVAlignTop;
+            headerRange.WrapText = true;
             headerRange.Interior.Color = ColorTranslator.ToOle(Color.LightGray);
+            ws.Rows[3].RowHeight = 28;
 
             int r = 4;
             int stt = 1;
@@ -2580,7 +2582,7 @@ namespace AIE.ExcelAddIn.Services
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
             ApplyFreezePanes(ws, 3);
-            ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$3:$4");
+            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
 
         /// <summary>
@@ -2996,7 +2998,7 @@ namespace AIE.ExcelAddIn.Services
             }
 
             ws.Columns.AutoFit();
-            ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$3:$4");
+            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$5:$5");
         }
 
         public void XuatBangTongHopVatLieu(Workbook wb, DuToan duToan)
@@ -3043,7 +3045,7 @@ namespace AIE.ExcelAddIn.Services
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
             ApplyFreezePanes(ws, 3);
-            ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$3:$4");
+            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
 
         public void XuatBangTongHopNhanCong(Workbook wb, DuToan duToan)
@@ -3082,7 +3084,7 @@ namespace AIE.ExcelAddIn.Services
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
             ApplyFreezePanes(ws, 3);
-            ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$3:$4");
+            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
 
         public void XuatBangTongHopCaMay(Workbook wb, DuToan duToan)
@@ -3121,7 +3123,7 @@ namespace AIE.ExcelAddIn.Services
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
             ApplyFreezePanes(ws, 3);
-            ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$3:$4");
+            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
 
         public static string FormatTenHangMucHeader(string? input) => TextHelper.FormatTenHangMucHeader(input);
@@ -3207,7 +3209,7 @@ namespace AIE.ExcelAddIn.Services
             headerRange.Font.Bold = true;
             headerRange.Interior.Color = ColorTranslator.ToOle(Color.FromArgb(230, 236, 245));
             headerRange.HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            headerRange.VerticalAlignment = XlVAlign.xlVAlignCenter;
+            headerRange.VerticalAlignment = XlVAlign.xlVAlignTop;
             headerRange.WrapText = true;
 
             ws.Range[ws.Cells[5, 1], ws.Cells[12, 1]].HorizontalAlignment = XlHAlign.xlHAlignCenter;
@@ -3236,7 +3238,7 @@ namespace AIE.ExcelAddIn.Services
             }
             catch { }
             ApplyFreezePanes(ws, 5);
-            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$4:$5");
+            ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$4");
         }
 
         /// <summary>

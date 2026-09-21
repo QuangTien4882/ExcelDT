@@ -8,6 +8,7 @@ using AIE.Data;
 using AIE.Data.Repositories;
 using AIE.Core.Models;
 using AIE.ExcelAddIn.Helpers;
+using AIE.ExcelAddIn.Services;
 
 namespace AIE.ExcelAddIn.Forms
 {
@@ -26,6 +27,8 @@ namespace AIE.ExcelAddIn.Forms
         private List<CongTacXayDung> _allCongTac;
         
         private string _settingsPath;
+        private string _initialSearchKeyword = "";
+        private int _targetRow = -1;
 
         public TraCuuDinhMucForm()
         {
@@ -41,6 +44,12 @@ namespace AIE.ExcelAddIn.Forms
             FormStateHelper.Attach(this);
         }
 
+        public TraCuuDinhMucForm(string initialSearchKeyword, int targetRow = -1) : this()
+        {
+            _initialSearchKeyword = initialSearchKeyword ?? "";
+            _targetRow = targetRow;
+        }
+
         private void InitializeComponents()
         {
             this.Text = "Tra cứu định mức (Thông tư 38)";
@@ -53,6 +62,13 @@ namespace AIE.ExcelAddIn.Forms
             this.BackColor = Color.FromArgb(245, 246, 250);
             this.ShowIcon = false;
             this.ShowInTaskbar = true;
+            this.KeyPreview = true;
+            this.KeyDown += (s, e) => {
+                if (e.KeyCode == Keys.Escape)
+                {
+                    this.Close();
+                }
+            };
 
             // --- HEADER PANEL ---
             var pnlTop = new Panel { Dock = DockStyle.Top, Height = 60, BackColor = Color.White };
@@ -84,6 +100,24 @@ namespace AIE.ExcelAddIn.Forms
             txtSearch.TextChanged += (s, e) => {
                 _searchTimer.Stop();
                 _searchTimer.Start();
+            };
+            txtSearch.KeyDown += (s, e) => {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.SuppressKeyPress = true;
+                    FilterData();
+                    if (dgvCongTac.Rows.Count > 0)
+                    {
+                        dgvCongTac.Focus();
+                    }
+                }
+                else if (e.KeyCode == Keys.Down)
+                {
+                    if (dgvCongTac.Rows.Count > 0)
+                    {
+                        dgvCongTac.Focus();
+                    }
+                }
             };
             
             btnSearch = new Button { 
@@ -183,6 +217,21 @@ namespace AIE.ExcelAddIn.Forms
             dgvCongTac = CreateModernGrid();
             dgvCongTac.SelectionChanged += DgvCongTac_SelectionChanged;
             dgvCongTac.CellDoubleClick += DgvCongTac_CellDoubleClick;
+            dgvCongTac.KeyDown += (s, e) => {
+                if (e.KeyCode == Keys.Enter)
+                {
+                    e.Handled = true;
+                    if (dgvCongTac.SelectedRows.Count > 0)
+                    {
+                        var ct = dgvCongTac.SelectedRows[0].DataBoundItem as CongTacXayDung;
+                        if (ct != null)
+                        {
+                            InsertCongTacIntoExcel(ct);
+                            if (_targetRow > 0) this.Close();
+                        }
+                    }
+                }
+            };
             SetupCongTacColumns();
             
             var pnlGrid1 = new Panel { Dock = DockStyle.Fill, Padding = new Padding(10), BackColor = Color.FromArgb(245, 246, 250) };
@@ -253,6 +302,7 @@ namespace AIE.ExcelAddIn.Forms
                 if (congTac != null)
                 {
                     InsertCongTacIntoExcel(congTac);
+                    if (_targetRow > 0) this.Close();
                 }
             }
         }
@@ -276,7 +326,11 @@ namespace AIE.ExcelAddIn.Forms
                 string cellC = ws.Cells[curRow, 3]?.Value2?.ToString()?.Trim() ?? "";
 
                 int targetRow = curRow;
-                if (!string.IsNullOrEmpty(cellB) || !string.IsNullOrEmpty(cellC))
+                if (_targetRow > 0)
+                {
+                    targetRow = _targetRow;
+                }
+                else if (!string.IsNullOrEmpty(cellB) || !string.IsNullOrEmpty(cellC))
                 {
                     // Nếu đã có dữ liệu hoặc tiêu đề, tự động chèn dòng mới ngay phía dưới
                     targetRow = curRow + 1;
@@ -358,6 +412,9 @@ namespace AIE.ExcelAddIn.Forms
                 }
                 catch { }
 
+                // Tự động đánh số thứ tự (STT) lại liên tục, chuẩn xác cho toàn bộ các dòng công tác từ trên xuống dưới
+                LapDuToanExcelService.DanhLaiSTTCongTac(ws);
+
                 // Auto-Focus: Chọn ngay ô Khối lượng (cột 5, E) để người dùng có thể nhập khối lượng ngay tức thì
                 Microsoft.Office.Interop.Excel.Range klCell = ws.Cells[targetRow, 5] as Microsoft.Office.Interop.Excel.Range;
                 klCell?.Select();
@@ -405,6 +462,16 @@ namespace AIE.ExcelAddIn.Forms
                 dgvCongTac.DataSource = _bsCongTac;
                 
                 LoadColumnSettings();
+
+                if (!string.IsNullOrWhiteSpace(_initialSearchKeyword))
+                {
+                    txtSearch.Text = _initialSearchKeyword;
+                    FilterData();
+                    if (dgvCongTac.Rows.Count > 0)
+                    {
+                        dgvCongTac.Focus();
+                    }
+                }
             }
             catch (Exception ex)
             {

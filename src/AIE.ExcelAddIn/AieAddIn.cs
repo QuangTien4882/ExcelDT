@@ -41,6 +41,13 @@ public class AieAddIn : IExcelAddIn
             });
         }
         catch { }
+
+        // Đăng ký dịch vụ tự động tra cứu định mức khi người dùng nhập liệu cột Mã hiệu trên sheet DuToan
+        try
+        {
+            AIE.ExcelAddIn.Services.SheetAutoLookupService.Register();
+        }
+        catch { }
     }
 
     private static void LogCrash(string source, System.Exception? ex)
@@ -63,6 +70,12 @@ public class AieAddIn : IExcelAddIn
         try
         {
             AIE.ExcelAddIn.Services.AutoSaveManager.Stop();
+        }
+        catch { }
+
+        try
+        {
+            AIE.ExcelAddIn.Services.SheetAutoLookupService.Unregister();
         }
         catch { }
     }

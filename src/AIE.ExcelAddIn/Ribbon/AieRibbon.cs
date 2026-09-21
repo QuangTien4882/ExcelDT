@@ -921,6 +921,9 @@ namespace AIE.ExcelAddIn.Ribbon
                     }
                     catch { }
 
+                    // Đánh số thứ tự (STT) chuẩn xác, liên tục cho toàn bộ các dòng công tác trên sheet
+                    LapDuToanExcelService.DanhLaiSTTCongTac(ws);
+
                     if (updatedCount == 0 && selectedRowIndices.Count > 1)
                     {
                         MessageBox.Show("Đã chuẩn hóa định dạng bảng và các dòng Hạng mục. Không tìm thấy Mã hiệu mới nào cần tra cứu.", "AIE Dự Toán", MessageBoxButtons.OK, MessageBoxIcon.Information);

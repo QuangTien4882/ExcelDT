@@ -274,6 +274,49 @@ public class LapDuToanExcelService
     }
 
     /// <summary>
+    /// Đánh lại số thứ tự (STT) tự động, liên tục từ trên xuống dưới cho toàn bộ các dòng công tác trên sheet DuToan,
+    /// tự động bỏ qua các dòng Hạng mục cha (I, II, III...), Hạng mục con và dừng lại trước dòng TỔNG CỘNG.
+    /// </summary>
+    public static void DanhLaiSTTCongTac(Worksheet ws)
+    {
+        if (ws == null) return;
+        try
+        {
+            Range used = ws.UsedRange;
+            if (used == null) return;
+            int maxRow = used.Rows.Count + used.Row - 1;
+
+            int sttCounter = 0;
+            for (int r = 6; r <= maxRow; r++)
+            {
+                string cVal = ws.Cells[r, 3]?.Value2?.ToString()?.Trim() ?? "";
+                string bVal = ws.Cells[r, 2]?.Value2?.ToString()?.Trim() ?? "";
+                string aVal = ws.Cells[r, 1]?.Value2?.ToString()?.Trim() ?? "";
+
+                if (cVal.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || 
+                    cVal.Equals("CỘNG", StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                // Nếu là dòng Hạng mục cha (số La Mã như I, II, III...) hoặc Hạng mục con
+                if (IsRomanNumeral(aVal) || (string.IsNullOrEmpty(bVal) && !string.IsNullOrEmpty(cVal) && (string.IsNullOrEmpty(aVal) || IsRomanNumeral(aVal))))
+                {
+                    continue;
+                }
+
+                // Nếu là dòng công tác (có mã hiệu hoặc có tên công tác và không phải dòng diễn giải khối lượng)
+                if (!string.IsNullOrEmpty(bVal) || (!string.IsNullOrEmpty(cVal) && int.TryParse(aVal, out _)))
+                {
+                    sttCounter++;
+                    ws.Cells[r, 1].Value2 = sttCounter;
+                }
+            }
+        }
+        catch { }
+    }
+
+    /// <summary>
     /// Gán đơn giá và công thức Thành tiền ngược lại các dòng tương ứng trên Excel,
     /// đồng thời đặt công thức tổng trực tiếp trên dòng tiêu đề Hạng mục và Hạng mục con.
     /// </summary>
