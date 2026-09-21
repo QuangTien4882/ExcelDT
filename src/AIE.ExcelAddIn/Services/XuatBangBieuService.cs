@@ -2582,20 +2582,29 @@ namespace AIE.ExcelAddIn.Services
             DrawTableBorders(ws, 3, 1, r - 1, 7);
             ExcelFormatHelper.ApplyRateFormat(ws.Range[$"E4:E{r - 1}"], 4);
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"F4:G{r - 1}"]);
+
+            // Thiết lập WrapText toàn bộ bảng và cột Tên để tự động xuống dòng
+            ((Range)ws.Columns[3]).WrapText = true;
+            ws.Range[ws.Cells[3, 1], ws.Cells[r - 1, 7]].WrapText = true;
+
+            // Độ rộng các cột khác auto theo tiêu đề ô, phần còn lại dành cho cột Tên (cột 3)
+            ((Range)ws.Columns[1]).ColumnWidth = 5;
+            ((Range)ws.Columns[2]).ColumnWidth = 11;
+            ((Range)ws.Columns[3]).ColumnWidth = 28;
+            ((Range)ws.Columns[4]).ColumnWidth = 7;
+            ((Range)ws.Columns[5]).ColumnWidth = 11;
+            ((Range)ws.Columns[6]).ColumnWidth = 12;
+            ((Range)ws.Columns[7]).ColumnWidth = 13;
+
+            ws.Columns[1].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[2].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[3].HorizontalAlignment = XlHAlign.xlHAlignLeft;
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            ws.Columns.AutoFit();
-            try
-            {
-                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
-                if ((double)((Range)ws.Columns[2]).ColumnWidth < 12) ((Range)ws.Columns[2]).ColumnWidth = 12;
-                if ((double)((Range)ws.Columns[3]).ColumnWidth < 45) ((Range)ws.Columns[3]).ColumnWidth = 45;
-                if ((double)((Range)ws.Columns[4]).ColumnWidth < 8) ((Range)ws.Columns[4]).ColumnWidth = 8;
-                if ((double)((Range)ws.Columns[5]).ColumnWidth < 12) ((Range)ws.Columns[5]).ColumnWidth = 12;
-                if ((double)((Range)ws.Columns[6]).ColumnWidth < 15) ((Range)ws.Columns[6]).ColumnWidth = 15;
-                if ((double)((Range)ws.Columns[7]).ColumnWidth < 16) ((Range)ws.Columns[7]).ColumnWidth = 16;
-                ws.Rows[3].RowHeight = 32;
-            }
-            catch { }
+            ws.Range[$"E4:G{r - 1}"].HorizontalAlignment = XlHAlign.xlHAlignRight;
+
+            ws.Rows[3].RowHeight = 32;
+            try { ws.Range[ws.Cells[4, 1], ws.Cells[r - 1, 7]].Rows.AutoFit(); } catch { }
+
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3057,22 +3066,31 @@ namespace AIE.ExcelAddIn.Services
 
             DrawTableBorders(ws, 3, 1, r - 1, 9);
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"E4:I{r - 1}"]);
+
+            // Thiết lập WrapText toàn bộ bảng và cột Tên để tự động xuống dòng
+            ((Range)ws.Columns[3]).WrapText = true;
+            ws.Range[ws.Cells[3, 1], ws.Cells[r - 1, 9]].WrapText = true;
+
+            // Độ rộng các cột khác auto theo tiêu đề ô, phần còn lại dành cho cột Tên (cột 3)
+            ((Range)ws.Columns[1]).ColumnWidth = 5;
+            ((Range)ws.Columns[2]).ColumnWidth = 10;
+            ((Range)ws.Columns[3]).ColumnWidth = 24;
+            ((Range)ws.Columns[4]).ColumnWidth = 6;
+            ((Range)ws.Columns[5]).ColumnWidth = 10;
+            ((Range)ws.Columns[6]).ColumnWidth = 11;
+            ((Range)ws.Columns[7]).ColumnWidth = 10;
+            ((Range)ws.Columns[8]).ColumnWidth = 10;
+            ((Range)ws.Columns[9]).ColumnWidth = 11;
+
+            ws.Columns[1].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[2].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[3].HorizontalAlignment = XlHAlign.xlHAlignLeft;
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            ws.Columns.AutoFit();
-            try
-            {
-                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
-                if ((double)((Range)ws.Columns[2]).ColumnWidth < 14) ((Range)ws.Columns[2]).ColumnWidth = 14;
-                if ((double)((Range)ws.Columns[3]).ColumnWidth < 36) ((Range)ws.Columns[3]).ColumnWidth = 36;
-                if ((double)((Range)ws.Columns[4]).ColumnWidth < 8) ((Range)ws.Columns[4]).ColumnWidth = 8;
-                if ((double)((Range)ws.Columns[5]).ColumnWidth < 14) ((Range)ws.Columns[5]).ColumnWidth = 14;
-                if ((double)((Range)ws.Columns[6]).ColumnWidth < 14) ((Range)ws.Columns[6]).ColumnWidth = 14;
-                if ((double)((Range)ws.Columns[7]).ColumnWidth < 14) ((Range)ws.Columns[7]).ColumnWidth = 14;
-                if ((double)((Range)ws.Columns[8]).ColumnWidth < 14) ((Range)ws.Columns[8]).ColumnWidth = 14;
-                if ((double)((Range)ws.Columns[9]).ColumnWidth < 16) ((Range)ws.Columns[9]).ColumnWidth = 16;
-                ws.Rows[3].RowHeight = 32;
-            }
-            catch { }
+            ws.Range[$"E4:I{r - 1}"].HorizontalAlignment = XlHAlign.xlHAlignRight;
+
+            ws.Rows[3].RowHeight = 32;
+            try { ws.Range[ws.Cells[4, 1], ws.Cells[r - 1, 9]].Rows.AutoFit(); } catch { }
+
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3110,18 +3128,27 @@ namespace AIE.ExcelAddIn.Services
 
             DrawTableBorders(ws, 3, 1, r - 1, 5);
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"E4:E{r - 1}"]);
+
+            // Thiết lập WrapText toàn bộ bảng và cột Tên để tự động xuống dòng
+            ((Range)ws.Columns[3]).WrapText = true;
+            ws.Range[ws.Cells[3, 1], ws.Cells[r - 1, 5]].WrapText = true;
+
+            // Độ rộng các cột khác auto theo tiêu đề ô, phần còn lại dành cho cột Tên (cột 3)
+            ((Range)ws.Columns[1]).ColumnWidth = 6;
+            ((Range)ws.Columns[2]).ColumnWidth = 13;
+            ((Range)ws.Columns[3]).ColumnWidth = 40;
+            ((Range)ws.Columns[4]).ColumnWidth = 8;
+            ((Range)ws.Columns[5]).ColumnWidth = 15;
+
+            ws.Columns[1].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[2].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[3].HorizontalAlignment = XlHAlign.xlHAlignLeft;
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            ws.Columns.AutoFit();
-            try
-            {
-                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
-                if ((double)((Range)ws.Columns[2]).ColumnWidth < 16) ((Range)ws.Columns[2]).ColumnWidth = 16;
-                if ((double)((Range)ws.Columns[3]).ColumnWidth < 48) ((Range)ws.Columns[3]).ColumnWidth = 48;
-                if ((double)((Range)ws.Columns[4]).ColumnWidth < 10) ((Range)ws.Columns[4]).ColumnWidth = 10;
-                if ((double)((Range)ws.Columns[5]).ColumnWidth < 20) ((Range)ws.Columns[5]).ColumnWidth = 20;
-                ws.Rows[3].RowHeight = 32;
-            }
-            catch { }
+            ws.Range[$"E4:E{r - 1}"].HorizontalAlignment = XlHAlign.xlHAlignRight;
+
+            ws.Rows[3].RowHeight = 32;
+            try { ws.Range[ws.Cells[4, 1], ws.Cells[r - 1, 5]].Rows.AutoFit(); } catch { }
+
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3159,18 +3186,27 @@ namespace AIE.ExcelAddIn.Services
 
             DrawTableBorders(ws, 3, 1, r - 1, 5);
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"E4:E{r - 1}"]);
+
+            // Thiết lập WrapText toàn bộ bảng và cột Tên để tự động xuống dòng
+            ((Range)ws.Columns[3]).WrapText = true;
+            ws.Range[ws.Cells[3, 1], ws.Cells[r - 1, 5]].WrapText = true;
+
+            // Độ rộng các cột khác auto theo tiêu đề ô, phần còn lại dành cho cột Tên (cột 3)
+            ((Range)ws.Columns[1]).ColumnWidth = 6;
+            ((Range)ws.Columns[2]).ColumnWidth = 13;
+            ((Range)ws.Columns[3]).ColumnWidth = 40;
+            ((Range)ws.Columns[4]).ColumnWidth = 8;
+            ((Range)ws.Columns[5]).ColumnWidth = 15;
+
+            ws.Columns[1].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[2].HorizontalAlignment = XlHAlign.xlHAlignCenter;
+            ws.Columns[3].HorizontalAlignment = XlHAlign.xlHAlignLeft;
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            ws.Columns.AutoFit();
-            try
-            {
-                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
-                if ((double)((Range)ws.Columns[2]).ColumnWidth < 16) ((Range)ws.Columns[2]).ColumnWidth = 16;
-                if ((double)((Range)ws.Columns[3]).ColumnWidth < 48) ((Range)ws.Columns[3]).ColumnWidth = 48;
-                if ((double)((Range)ws.Columns[4]).ColumnWidth < 10) ((Range)ws.Columns[4]).ColumnWidth = 10;
-                if ((double)((Range)ws.Columns[5]).ColumnWidth < 20) ((Range)ws.Columns[5]).ColumnWidth = 20;
-                ws.Rows[3].RowHeight = 32;
-            }
-            catch { }
+            ws.Range[$"E4:E{r - 1}"].HorizontalAlignment = XlHAlign.xlHAlignRight;
+
+            ws.Rows[3].RowHeight = 32;
+            try { ws.Range[ws.Cells[4, 1], ws.Cells[r - 1, 5]].Rows.AutoFit(); } catch { }
+
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
