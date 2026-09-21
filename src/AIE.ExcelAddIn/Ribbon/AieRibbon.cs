@@ -1342,30 +1342,41 @@ namespace AIE.ExcelAddIn.Ribbon
             _duToanByWb[wbKey] = duToan;
             _filePathByWb[wbKey] = filePath;
 
-            // Ghi dữ liệu ra Excel (sheet hiện tại) để người dùng có thể xem/chỉnh sửa
-            var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
-            excelService.WriteBOQToActiveSheet(duToan);
-
-            // Luôn tái tính đơn giá + liên kết lại sheet DuToan theo Bảng tổng hợp hiện tại,
-            // tránh sheet giữ đơn giá cũ (lệch với modal Tổng hợp kinh phí khi xuất).
-            var hasCongTac = duToan.DanhSachHangMuc != null &&
-                             duToan.DanhSachHangMuc.Sum(hm => hm.DanhSachCongTac?.Count ?? 0) > 0;
-            var bth = duToan.BangTongHop;
-            var hasBangTongHop = bth != null &&
-                                 ((bth.DanhSachVatLieu?.Count ?? 0) + (bth.DanhSachNhanCong?.Count ?? 0) + (bth.DanhSachMay?.Count ?? 0)) > 0;
-            if (hasCongTac && (duToan.ChiPhiXD != null || hasBangTongHop))
+            bool oldEvents = app.EnableEvents;
+            AIE.ExcelAddIn.Services.SheetAutoLookupService.IsSuspended = true;
+            app.EnableEvents = false;
+            try
             {
-                var xuatService = new AIE.ExcelAddIn.Services.XuatBangBieuService();
-                xuatService.ApGiaVaLienKetDuToan(duToan);
+                // Ghi dữ liệu ra Excel (sheet hiện tại) để người dùng có thể xem/chỉnh sửa
+                var excelService = new AIE.ExcelAddIn.Services.LapDuToanExcelService();
+                excelService.WriteBOQToActiveSheet(duToan);
 
-                if (xuatService.LastDonGiaDrift > 1000m)
+                // Luôn tái tính đơn giá + liên kết lại sheet DuToan theo Bảng tổng hợp hiện tại,
+                // tránh sheet giữ đơn giá cũ (lệch với modal Tổng hợp kinh phí khi xuất).
+                var hasCongTac = duToan.DanhSachHangMuc != null &&
+                                 duToan.DanhSachHangMuc.Sum(hm => hm.DanhSachCongTac?.Count ?? 0) > 0;
+                var bth = duToan.BangTongHop;
+                var hasBangTongHop = bth != null &&
+                                     ((bth.DanhSachVatLieu?.Count ?? 0) + (bth.DanhSachNhanCong?.Count ?? 0) + (bth.DanhSachMay?.Count ?? 0)) > 0;
+                if (hasCongTac && (duToan.ChiPhiXD != null || hasBangTongHop))
                 {
-                    MessageBox.Show(
-                        $"Đơn giá trong file lưu đã cũ so với Bảng tổng hợp hiện tại.\n" +
-                        $"Đã tự động cập nhật lại đơn giá và các bảng liên quan.\n\n" +
-                        $"Tổng chênh lệch tạm tính: {xuatService.LastDonGiaDrift:N0} đồng.",
-                        "Cập nhật đơn giá", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    var xuatService = new AIE.ExcelAddIn.Services.XuatBangBieuService();
+                    xuatService.ApGiaVaLienKetDuToan(duToan);
+
+                    if (xuatService.LastDonGiaDrift > 1000m)
+                    {
+                        MessageBox.Show(
+                            $"Đơn giá trong file lưu đã cũ so với Bảng tổng hợp hiện tại.\n" +
+                            $"Đã tự động cập nhật lại đơn giá và các bảng liên quan.\n\n" +
+                            $"Tổng chênh lệch tạm tính: {xuatService.LastDonGiaDrift:N0} đồng.",
+                            "Cập nhật đơn giá", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                 }
+            }
+            finally
+            {
+                app.EnableEvents = oldEvents;
+                AIE.ExcelAddIn.Services.SheetAutoLookupService.IsSuspended = false;
             }
 
             MessageBox.Show(

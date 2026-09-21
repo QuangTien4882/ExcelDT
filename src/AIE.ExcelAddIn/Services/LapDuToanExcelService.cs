@@ -512,6 +512,10 @@ public class LapDuToanExcelService
         var ws = app.ActiveSheet as Worksheet;
         if (ws == null) throw new Exception("Không có Sheet nào đang mở.");
 
+        bool oldUpdating = app.ScreenUpdating;
+        bool oldEvents = app.EnableEvents;
+        SheetAutoLookupService.IsSuspended = true;
+        app.EnableEvents = false;
         app.ScreenUpdating = false;
         try
         {
@@ -585,10 +589,10 @@ public class LapDuToanExcelService
             headerRange.Interior.Color = System.Drawing.ColorTranslator.ToOle(System.Drawing.Color.FromArgb(200, 220, 240));
             headerRange.Borders.LineStyle = Microsoft.Office.Interop.Excel.XlLineStyle.xlContinuous;
 
-            // Column widths
-            ((Microsoft.Office.Interop.Excel.Range)ws.Columns[1]).ColumnWidth = 5;
-            ((Microsoft.Office.Interop.Excel.Range)ws.Columns[2]).ColumnWidth = 12;
-            ((Microsoft.Office.Interop.Excel.Range)ws.Columns[3]).ColumnWidth = 42;
+            // Column widths chuẩn A4 Landscape trải đều
+            ((Microsoft.Office.Interop.Excel.Range)ws.Columns[1]).ColumnWidth = 6;
+            ((Microsoft.Office.Interop.Excel.Range)ws.Columns[2]).ColumnWidth = 13;
+            ((Microsoft.Office.Interop.Excel.Range)ws.Columns[3]).ColumnWidth = 52;
             ((Microsoft.Office.Interop.Excel.Range)ws.Columns[4]).ColumnWidth = 8;
             ((Microsoft.Office.Interop.Excel.Range)ws.Columns[5]).ColumnWidth = 12;
             ((Microsoft.Office.Interop.Excel.Range)ws.Columns[6]).ColumnWidth = 14;
@@ -743,6 +747,9 @@ public class LapDuToanExcelService
                 ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"F6:K{r - 1}"]);
             }
             
+            // Thiết lập PrintArea chuẩn để không bị in khoảng trắng các cột rỗng
+            try { ws.PageSetup.PrintArea = $"$A$1:$K${r - 1}"; } catch { }
+
             // Thiết lập trang in chuẩn A4 ngang cho sheet DuToan (Fit 1 page wide, căn giữa)
             XuatBangBieuService.ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$4:$5");
 
@@ -755,7 +762,9 @@ public class LapDuToanExcelService
         }
         finally
         {
-            app.ScreenUpdating = true;
+            app.ScreenUpdating = oldUpdating;
+            app.EnableEvents = oldEvents;
+            SheetAutoLookupService.IsSuspended = false;
         }
     }
 

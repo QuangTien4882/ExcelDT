@@ -24,6 +24,11 @@ namespace AIE.ExcelAddIn.Services
         private static bool _isHooked = false;
         private static bool _isFormShowing = false;
 
+        /// <summary>
+        /// Cờ tạm dừng dịch vụ tra cứu tự động khi đang thực hiện các thao tác ghi dữ liệu hàng loạt (mở file, áp giá...).
+        /// </summary>
+        public static bool IsSuspended { get; set; } = false;
+
         // Windows Keyboard Hook definitions
         private const int WH_KEYBOARD_LL = 13;
         private const int WM_KEYDOWN = 0x0100;
@@ -47,7 +52,7 @@ namespace AIE.ExcelAddIn.Services
         private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
 
         [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        private static extern IntPtr LoadLibrary(string lpFileName);
+        private static extern IntPtr GetModuleHandle(string lpModuleName);
 
         public static void Register()
         {
@@ -86,13 +91,16 @@ namespace AIE.ExcelAddIn.Services
 
         private static void InstallKeyboardHook(Worksheet ws, int row)
         {
-            if (_hookId != IntPtr.Zero) return;
+            if (IsSuspended || _hookId != IntPtr.Zero) return;
             try
             {
                 _activeWorksheet = ws;
                 _activeRow = row;
-                IntPtr hMod = LoadLibrary("user32.dll");
-                _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _hookProc, hMod, 0);
+                using (var curProcess = Process.GetCurrentProcess())
+                using (var curModule = curProcess.MainModule)
+                {
+                    _hookId = SetWindowsHookEx(WH_KEYBOARD_LL, _hookProc, GetModuleHandle(curModule.ModuleName), 0);
+                }
             }
             catch { }
         }
@@ -232,6 +240,12 @@ namespace AIE.ExcelAddIn.Services
 
         private static void OnAppSheetSelectionChange(object sh, Range target)
         {
+            if (IsSuspended)
+            {
+                UninstallKeyboardHook();
+                return;
+            }
+
             try
             {
                 var ws = sh as Worksheet;
@@ -265,6 +279,8 @@ namespace AIE.ExcelAddIn.Services
 
         private static void OnAppSheetBeforeDoubleClick(object sh, Range target, ref bool cancel)
         {
+            if (IsSuspended) return;
+
             try
             {
                 var ws = sh as Worksheet;
@@ -291,7 +307,7 @@ namespace AIE.ExcelAddIn.Services
 
         private static void OnAppSheetChange(object sh, Range target)
         {
-            if (_isFormShowing) return;
+            if (IsSuspended || _isFormShowing) return;
 
             try
             {
@@ -322,7 +338,7 @@ namespace AIE.ExcelAddIn.Services
 
         private static void HandleExactOrLookup(Worksheet ws, int row, string keyword)
         {
-            if (_isFormShowing) return;
+            if (IsSuspended || _isFormShowing) return;
             try
             {
                 var db = new DatabaseManager();
@@ -347,7 +363,10 @@ namespace AIE.ExcelAddIn.Services
 
                     LapDuToanExcelService.DanhLaiSTTCongTac(ws);
 
-                    ((Range)ws.Cells[row, 5]).Select();
+                    if (!IsSuspended)
+                    {
+                        ((Range)ws.Cells[row, 5]).Select();
+                    }
                     return;
                 }
 
@@ -357,7 +376,10 @@ namespace AIE.ExcelAddIn.Services
             catch { }
             finally
             {
-                RecheckHook(ws);
+                if (!IsSuspended)
+                {
+                    RecheckHook(ws);
+                }
             }
         }
 

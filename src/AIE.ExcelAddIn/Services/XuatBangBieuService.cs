@@ -579,10 +579,10 @@ namespace AIE.ExcelAddIn.Services
                     headerRange.Interior.Color = ColorTranslator.ToOle(Color.FromArgb(200, 220, 240));
                     headerRange.Borders.LineStyle = XlLineStyle.xlContinuous;
 
-                    // Column widths
-                    ((Range)ws.Columns[1]).ColumnWidth = 5;
-                    ((Range)ws.Columns[2]).ColumnWidth = 12;
-                    ((Range)ws.Columns[3]).ColumnWidth = 42;
+                    // Column widths chuẩn A4 Landscape trải đều
+                    ((Range)ws.Columns[1]).ColumnWidth = 6;
+                    ((Range)ws.Columns[2]).ColumnWidth = 13;
+                    ((Range)ws.Columns[3]).ColumnWidth = 52;
                     ((Range)ws.Columns[4]).ColumnWidth = 8;
                     ((Range)ws.Columns[5]).ColumnWidth = 12;
                     ((Range)ws.Columns[6]).ColumnWidth = 14;
@@ -594,6 +594,15 @@ namespace AIE.ExcelAddIn.Services
 
                     // Cập nhật công thức và định dạng dữ liệu cho sheet DuToan (đa hạng mục chuẩn)
                     CapNhatCongThucVaDinhDangDuToan(ws, duToan);
+
+                    // Thiết lập PrintArea chuẩn để bảng không bị thừa các cột rỗng bên phải
+                    try
+                    {
+                        int lastRow = ws.Cells[ws.Rows.Count, 3].End[XlDirection.xlUp].Row;
+                        if (lastRow < 6) lastRow = 6;
+                        ws.PageSetup.PrintArea = $"$A$1:$K${lastRow}";
+                    }
+                    catch { }
 
                     // Thiết lập trang in chuẩn A4 ngang cho sheet DuToan (Fit 1 page wide, căn giữa)
                     ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$4:$5");
@@ -3043,10 +3052,10 @@ namespace AIE.ExcelAddIn.Services
             var headerRange = ws.Range[ws.Cells[3, 1], ws.Cells[3, 9]];
             headerRange.Font.Bold = true;
             headerRange.HorizontalAlignment = XlHAlign.xlHAlignCenter;
-            headerRange.VerticalAlignment = XlVAlign.xlVAlignTop;
+            headerRange.VerticalAlignment = XlVAlign.xlVAlignCenter;
             headerRange.WrapText = true;
             headerRange.Interior.Color = ColorTranslator.ToOle(Color.LightGray);
-            ws.Rows[3].RowHeight = 28;
+            ws.Rows[3].RowHeight = 36;
 
             int r = 4;
             int stt = 1;
@@ -3071,16 +3080,16 @@ namespace AIE.ExcelAddIn.Services
             ((Range)ws.Columns[3]).WrapText = true;
             ws.Range[ws.Cells[3, 1], ws.Cells[r - 1, 9]].WrapText = true;
 
-            // Độ rộng các cột khác auto theo tiêu đề ô, phần còn lại dành cho cột Tên (cột 3)
+            // Độ rộng các cột chuẩn để không bị rớt dòng mất chữ "(đồng)"
             ((Range)ws.Columns[1]).ColumnWidth = 5;
-            ((Range)ws.Columns[2]).ColumnWidth = 10;
-            ((Range)ws.Columns[3]).ColumnWidth = 24;
-            ((Range)ws.Columns[4]).ColumnWidth = 6;
-            ((Range)ws.Columns[5]).ColumnWidth = 10;
-            ((Range)ws.Columns[6]).ColumnWidth = 11;
-            ((Range)ws.Columns[7]).ColumnWidth = 10;
-            ((Range)ws.Columns[8]).ColumnWidth = 10;
-            ((Range)ws.Columns[9]).ColumnWidth = 11;
+            ((Range)ws.Columns[2]).ColumnWidth = 11;
+            ((Range)ws.Columns[3]).ColumnWidth = 32;
+            ((Range)ws.Columns[4]).ColumnWidth = 7;
+            ((Range)ws.Columns[5]).ColumnWidth = 13;
+            ((Range)ws.Columns[6]).ColumnWidth = 15.5;
+            ((Range)ws.Columns[7]).ColumnWidth = 14.5;
+            ((Range)ws.Columns[8]).ColumnWidth = 14.0;
+            ((Range)ws.Columns[9]).ColumnWidth = 15.5;
 
             ws.Columns[1].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns[2].HorizontalAlignment = XlHAlign.xlHAlignCenter;
@@ -3088,10 +3097,11 @@ namespace AIE.ExcelAddIn.Services
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Range[$"E4:I{r - 1}"].HorizontalAlignment = XlHAlign.xlHAlignRight;
 
-            ws.Rows[3].RowHeight = 32;
+            ws.Rows[3].RowHeight = 36;
             try { ws.Range[ws.Cells[4, 1], ws.Cells[r - 1, 9]].Rows.AutoFit(); } catch { }
 
             ApplyFreezePanes(ws, 3);
+            try { ws.PageSetup.PrintArea = $"$A$1:$I${r - 1}"; } catch { }
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
 
@@ -3404,6 +3414,10 @@ namespace AIE.ExcelAddIn.Services
             if (wb == null) throw new Exception("Không có Workbook nào đang mở.");
 
             LastDonGiaDrift = 0m;
+            bool oldUpdating = app.ScreenUpdating;
+            bool oldEvents = app.EnableEvents;
+            SheetAutoLookupService.IsSuspended = true;
+            app.EnableEvents = false;
             app.ScreenUpdating = false;
             app.Calculation = XlCalculation.xlCalculationManual;
 
@@ -3476,7 +3490,9 @@ namespace AIE.ExcelAddIn.Services
             }
             finally
             {
-                app.ScreenUpdating = true;
+                app.ScreenUpdating = oldUpdating;
+                app.EnableEvents = oldEvents;
+                SheetAutoLookupService.IsSuspended = false;
                 app.Calculation = XlCalculation.xlCalculationAutomatic;
             }
         }
