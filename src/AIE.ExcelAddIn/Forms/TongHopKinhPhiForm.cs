@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
 using AIE.Core.Models;
@@ -993,8 +994,21 @@ namespace AIE.ExcelAddIn.Forms
                     dgvChiPhi.CommitEdit(DataGridViewDataErrorContexts.Commit);
             };
             dgvChiPhi.DataError += (s, e) => { e.Cancel = true; }; // Chống crash ComboBox
+            dgvChiPhi.CellPainting += DgvChiPhi_CellPainting;
+            dgvChiPhi.CellClick += DgvChiPhi_CellClick;
+            dgvChiPhi.CellMouseMove += DgvChiPhi_CellMouseMove;
+            dgvChiPhi.CellMouseLeave += (s, e) => { if (dgvChiPhi.Cursor != Cursors.Default) dgvChiPhi.Cursor = Cursors.Default; };
+            dgvChiPhi.KeyDown += DgvChiPhi_KeyDown;
 
-            var colActive = new DataGridViewCheckBoxColumn { Name = "colActive", HeaderText = "Dùng", Width = 55, FillWeight = 4 };
+            var colActive = new DataGridViewCheckBoxColumn
+            {
+                Name = "colActive",
+                HeaderText = "Dùng",
+                Width = 65,
+                FillWeight = 5,
+                ReadOnly = true,
+                DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter }
+            };
             var colSTT = new DataGridViewTextBoxColumn { Name = "colSTT", HeaderText = "STT", Width = 65, FillWeight = 5, ReadOnly = true, DefaultCellStyle = { Alignment = DataGridViewContentAlignment.MiddleCenter } };
             var colTen = new DataGridViewTextBoxColumn { Name = "colTen", HeaderText = "Nội dung khoản mục chi phí", Width = 380, FillWeight = 36 };
 
@@ -1333,6 +1347,16 @@ namespace AIE.ExcelAddIn.Forms
                 else
                 {
                     cboSoBuocThietKe.SelectedIndex = 0;
+                }
+
+                if (_model.SoBuocThietKe == 1)
+                {
+                    var itemTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TK");
+                    if (itemTK != null) itemTK.IsActive = false;
+                    var itemTDTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_TK");
+                    if (itemTDTK != null) itemTDTK.IsActive = false;
+                    var itemTDDT = _model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_DT");
+                    if (itemTDDT != null) itemTDDT.IsActive = false;
                 }
 
                 // Format số chuẩn Việt Nam (dấu chấm hàng nghìn)
@@ -2620,6 +2644,65 @@ namespace AIE.ExcelAddIn.Forms
             _model.CaiTaoSuaChua = chkCaiTao.Checked;
             _model.ThietKeLapLai = chkLapLai.Checked;
 
+            if (buocSel == 1)
+            {
+                // Đối với dự án 1 bước (Báo cáo KT-KT):
+                // - Chi phí lập BCKT-KT đã bao gồm chi phí thiết kế
+                // - Phí thẩm định BCKT-KT (thẩm định dự án) đã bao gồm phí thẩm định thiết kế và thẩm định dự toán
+                var itemTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TK");
+                if (itemTK != null) itemTK.IsActive = false;
+                var itemTDTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_TK");
+                if (itemTDTK != null) itemTDTK.IsActive = false;
+                var itemTDDT = _model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_DT");
+                if (itemTDDT != null) itemTDDT.IsActive = false;
+
+                // Thẩm tra thiết kế và thẩm tra dự toán BCKT-KT nhân hệ số k = 1,2 theo Mục 4.4 TT 38/2026
+                var itemTTTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TT_TK");
+                if (itemTTTK != null)
+                {
+                    decimal kTV = _model.VungKhoKhan ? 1.35m : 1.0m;
+                    itemTTTK.HeSoDieuChinh = kTV * 1.2m;
+                    itemTTTK.GhiChuCachTinh = "Bảng 2.19 TT 38/2026 (k=1,2 Mục 4.4)";
+                }
+                var itemTTDT = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TT_DT");
+                if (itemTTDT != null)
+                {
+                    decimal kTV = _model.VungKhoKhan ? 1.35m : 1.0m;
+                    decimal kTTDT = kTV * 1.2m;
+                    decimal gXDTB = _model.ChiPhiXDTruocThue + _model.ChiPhiTBTruocThue;
+                    if (gXDTB > 0 && _model.ChiPhiTBTruocThue / gXDTB >= 0.25m) kTTDT *= 1.2m;
+                    itemTTDT.HeSoDieuChinh = kTTDT;
+                    itemTTDT.GhiChuCachTinh = "Bảng 2.20 TT 38/2026 (k=1,2 Mục 4.4)";
+                }
+            }
+            else if (buocSel == 2 || buocSel == 3)
+            {
+                var itemTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TK");
+                if (itemTK != null) itemTK.IsActive = true;
+                var itemTDTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_TK");
+                if (itemTDTK != null) itemTDTK.IsActive = true;
+                var itemTDDT = _model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_DT");
+                if (itemTDDT != null) itemTDDT.IsActive = true;
+
+                var itemTTTK = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TT_TK");
+                if (itemTTTK != null)
+                {
+                    decimal kTV = _model.VungKhoKhan ? 1.35m : 1.0m;
+                    itemTTTK.HeSoDieuChinh = kTV;
+                    itemTTTK.GhiChuCachTinh = "Bảng 2.19 Thông tư 38/2026";
+                }
+                var itemTTDT = _model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TT_DT");
+                if (itemTTDT != null)
+                {
+                    decimal kTV = _model.VungKhoKhan ? 1.35m : 1.0m;
+                    decimal kTTDT = kTV;
+                    decimal gXDTB = _model.ChiPhiXDTruocThue + _model.ChiPhiTBTruocThue;
+                    if (gXDTB > 0 && _model.ChiPhiTBTruocThue / gXDTB >= 0.25m) kTTDT *= 1.2m;
+                    itemTTDT.HeSoDieuChinh = kTTDT;
+                    itemTTDT.GhiChuCachTinh = "Bảng 2.20 Thông tư 38/2026";
+                }
+            }
+
             if (traLaiDinhMuc && !string.IsNullOrEmpty(loaiSel) && !string.IsNullOrEmpty(capSel))
             {
                 DinhMucTT38Engine.CapNhatToanBoDinhMucVaTinhToan(_model);
@@ -3336,5 +3419,154 @@ namespace AIE.ExcelAddIn.Forms
                 e.SuppressKeyPress = true;
             }
         }
+
+        #region Custom CheckBox Column Rendering & UX (Yêu cầu 3)
+
+        private void DgvChiPhi_CellPainting(object sender, DataGridViewCellPaintingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            if (dgvChiPhi.Columns[e.ColumnIndex].Name != "colActive") return;
+
+            var row = dgvChiPhi.Rows[e.RowIndex];
+            if (row.Tag is not ChiPhiKinhPhiItem item)
+            {
+                e.PaintBackground(e.CellBounds, true);
+                e.Handled = true;
+                return;
+            }
+
+            e.PaintBackground(e.CellBounds, true);
+
+            // Kích thước checkbox to, rõ, hiện đại (22x22 pixel)
+            int boxSize = 22;
+            int x = e.CellBounds.Left + (e.CellBounds.Width - boxSize) / 2;
+            int y = e.CellBounds.Top + (e.CellBounds.Height - boxSize) / 2;
+            var rect = new Rectangle(x, y, boxSize, boxSize);
+
+            var g = e.Graphics;
+            var oldSmoothing = g.SmoothingMode;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            int cornerRadius = 4;
+            using (var path = CreateRoundedRectanglePath(rect, cornerRadius))
+            {
+                if (item.IsActive)
+                {
+                    // Trạng thái ĐÃ CHỌN: Nền xanh thương hiệu chuyên nghiệp #2B579A, viền đậm
+                    using (var brush = new SolidBrush(Color.FromArgb(43, 87, 154)))
+                    {
+                        g.FillPath(brush, path);
+                    }
+                    using (var penBorder = new Pen(Color.FromArgb(30, 65, 120), 1.5f))
+                    {
+                        g.DrawPath(penBorder, path);
+                    }
+
+                    // Dấu tick kiểm trắng đậm, sắc nét
+                    using (var penCheck = new Pen(Color.White, 2.5f)
+                    {
+                        StartCap = LineCap.Round,
+                        EndCap = LineCap.Round,
+                        LineJoin = LineJoin.Round
+                    })
+                    {
+                        Point pt1 = new Point(x + 5, y + 11);
+                        Point pt2 = new Point(x + 9, y + 16);
+                        Point pt3 = new Point(x + 17, y + 6);
+                        g.DrawLines(penCheck, new Point[] { pt1, pt2, pt3 });
+                    }
+                }
+                else
+                {
+                    // Trạng thái CHƯA CHỌN: Nền trắng, viền xám trung tính hiện đại
+                    using (var brush = new SolidBrush(Color.White))
+                    {
+                        g.FillPath(brush, path);
+                    }
+                    using (var penBorder = new Pen(Color.FromArgb(170, 180, 195), 1.6f))
+                    {
+                        g.DrawPath(penBorder, path);
+                    }
+                }
+            }
+
+            g.SmoothingMode = oldSmoothing;
+            e.Handled = true;
+        }
+
+        private static GraphicsPath CreateRoundedRectanglePath(Rectangle rect, int radius)
+        {
+            var path = new GraphicsPath();
+            int d = radius * 2;
+            path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+            path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+            path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+            path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+            path.CloseFigure();
+            return path;
+        }
+
+        private void DgvChiPhi_CellClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (_isUpdating || e.RowIndex < 0 || e.ColumnIndex < 0) return;
+            if (dgvChiPhi.Columns[e.ColumnIndex].Name == "colActive")
+            {
+                var row = dgvChiPhi.Rows[e.RowIndex];
+                if (row.Tag is ChiPhiKinhPhiItem item)
+                {
+                    item.IsActive = !item.IsActive;
+                    row.Cells["colActive"].Value = item.IsActive;
+                    row.DefaultCellStyle.ForeColor = item.IsActive ? Color.Black : Color.Gray;
+                    DinhMucTT38Engine.CapNhatTiLeThamDinhDuAn(_model, null, _model.YeuCauThueThamTra);
+                    CapNhatThanhTongCong();
+                    dgvChiPhi.InvalidateCell(e.ColumnIndex, e.RowIndex);
+                }
+            }
+        }
+
+        private void DgvChiPhi_CellMouseMove(object sender, DataGridViewCellMouseEventArgs e)
+        {
+            if (e.RowIndex >= 0 && e.ColumnIndex >= 0 && dgvChiPhi.Columns[e.ColumnIndex].Name == "colActive")
+            {
+                var row = dgvChiPhi.Rows[e.RowIndex];
+                if (row.Tag is ChiPhiKinhPhiItem)
+                {
+                    if (dgvChiPhi.Cursor != Cursors.Hand)
+                        dgvChiPhi.Cursor = Cursors.Hand;
+                    return;
+                }
+            }
+            if (dgvChiPhi.Cursor != Cursors.Default)
+                dgvChiPhi.Cursor = Cursors.Default;
+        }
+
+        private void DgvChiPhi_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Space && dgvChiPhi.SelectedRows.Count > 0)
+            {
+                bool anyToggled = false;
+                foreach (DataGridViewRow selRow in dgvChiPhi.SelectedRows)
+                {
+                    if (selRow.Tag is ChiPhiKinhPhiItem item)
+                    {
+                        item.IsActive = !item.IsActive;
+                        selRow.Cells["colActive"].Value = item.IsActive;
+                        selRow.DefaultCellStyle.ForeColor = item.IsActive ? Color.Black : Color.Gray;
+                        anyToggled = true;
+                    }
+                }
+
+                if (anyToggled)
+                {
+                    DinhMucTT38Engine.CapNhatTiLeThamDinhDuAn(_model, null, _model.YeuCauThueThamTra);
+                    CapNhatThanhTongCong();
+                    dgvChiPhi.Invalidate();
+                    e.Handled = true;
+                    e.SuppressKeyPress = true;
+                }
+            }
+        }
+
+        #endregion
     }
 }

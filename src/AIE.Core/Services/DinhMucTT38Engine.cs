@@ -35,6 +35,15 @@ namespace AIE.Core.Services
             };
 
             model.Items = KhoiTaoDanhSachKhoanMucChuan();
+            if (soBuocTK == 1)
+            {
+                var itemTK = model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TK");
+                if (itemTK != null) itemTK.IsActive = false;
+                var itemTDTK = model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_TK");
+                if (itemTDTK != null) itemTDTK.IsActive = false;
+                var itemTDDT = model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_DT");
+                if (itemTDDT != null) itemTDDT.IsActive = false;
+            }
             if (chiPhiTB > 0)
             {
                 var itemGSTB = model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_GS_TB");
@@ -557,6 +566,15 @@ namespace AIE.Core.Services
                         break;
 
                     case "TV_TK":
+                        if (soBuocTK == 1)
+                        {
+                            // Đối với dự án 1 bước (Báo cáo KT-KT), Chi phí lập Báo cáo KT-KT đã bao gồm chi phí thiết kế
+                            item.IsActive = false;
+                        }
+                        else if (soBuocTK == 2 || soBuocTK == 3)
+                        {
+                            item.IsActive = true;
+                        }
                         if (DinhMucTT38Database.TiLeThietKeKyThuat.TryGetValue(loaiCT, out var tkLoai))
                         {
                             string capChuan = DinhMucTT38Database.ChuanHoaCapCongTrinh(capCT);
@@ -581,8 +599,11 @@ namespace AIE.Core.Services
                         if (DinhMucTT38Database.TiLeThamTraTK.TryGetValue(loaiCT, out var tttkArr))
                         {
                             item.TyLePhanTram = Math.Round(DinhMucChiPhiKhacBTC.NoiSuy(DinhMucTT38Database.MocQuyMoThamTraTK, tttkArr, qmXDTy), 4);
-                            item.HeSoDieuChinh = kTV;
+                            decimal kTTTK = kTV;
+                            if (soBuocTK == 1) kTTTK *= 1.2m; // Mục 4.4 TT 38/2026: Thẩm tra Báo cáo KT-KT điều chỉnh hệ số k = 1,2
+                            item.HeSoDieuChinh = kTTTK;
                             item.MinValue = 2000000m;
+                            item.GhiChuCachTinh = soBuocTK == 1 ? "Bảng 2.19 TT 38/2026 (k=1,2 Mục 4.4)" : "Bảng 2.19 Thông tư 38/2026";
                         }
                         break;
 
@@ -591,9 +612,11 @@ namespace AIE.Core.Services
                         {
                             item.TyLePhanTram = Math.Round(DinhMucChiPhiKhacBTC.NoiSuy(DinhMucTT38Database.MocQuyMoThamTraTK, ttdtArr, qmXDTy), 4);
                             decimal kTTDT = kTV;
+                            if (soBuocTK == 1) kTTDT *= 1.2m; // Mục 4.4 TT 38/2026: Thẩm tra Báo cáo KT-KT điều chỉnh hệ số k = 1,2
                             if (gXDTB > 0 && gTB / gXDTB >= 0.25m) kTTDT *= 1.2m;
                             item.HeSoDieuChinh = kTTDT;
                             item.MinValue = 2000000m;
+                            item.GhiChuCachTinh = soBuocTK == 1 ? "Bảng 2.20 TT 38/2026 (k=1,2 Mục 4.4)" : "Bảng 2.20 Thông tư 38/2026";
                         }
                         break;
 
@@ -701,6 +724,15 @@ namespace AIE.Core.Services
                         break;
 
                     case "K_TD_TK":
+                        if (soBuocTK == 1)
+                        {
+                            // Đối với dự án 1 bước (Báo cáo KT-KT), Phí thẩm định Báo cáo KT-KT đã bao gồm thẩm định thiết kế
+                            item.IsActive = false;
+                        }
+                        else if (soBuocTK == 2 || soBuocTK == 3)
+                        {
+                            item.IsActive = true;
+                        }
                         if (DinhMucChiPhiKhacBTC.TiLeThamDinhThietKe.TryGetValue(loaiCT, out var tdtkArr))
                         {
                             item.TyLePhanTram = DinhMucChiPhiKhacBTC.NoiSuy(
@@ -712,6 +744,15 @@ namespace AIE.Core.Services
                         break;
 
                     case "K_TD_DT":
+                        if (soBuocTK == 1)
+                        {
+                            // Đối với dự án 1 bước (Báo cáo KT-KT), Phí thẩm định Báo cáo KT-KT đã bao gồm thẩm định dự toán
+                            item.IsActive = false;
+                        }
+                        else if (soBuocTK == 2 || soBuocTK == 3)
+                        {
+                            item.IsActive = true;
+                        }
                         if (DinhMucChiPhiKhacBTC.TiLeThamDinhDuToan.TryGetValue(loaiCT, out var tddtArr))
                         {
                             item.TyLePhanTram = DinhMucChiPhiKhacBTC.NoiSuy(
@@ -919,8 +960,10 @@ namespace AIE.Core.Services
                     r.SoTrangPdf  = BangToPdfPageMap.LaySoTrang("2.19");
                     r.MocQuyMo    = DinhMucTT38Database.MocQuyMoThamTraTK;
                     r.CoSoTinh    = "G_XD (trước thuế)";
-                    r.HeSo        = kTV;
-                    r.GhiChu      = "Tối thiểu 2.000.000đ";
+                    decimal kTK_TT = kTV;
+                    if (soBuocTK == 1) kTK_TT *= 1.2m; // Mục 4.4 TT 38/2026: BCKT-KT k=1,2
+                    r.HeSo        = kTK_TT;
+                    r.GhiChu      = soBuocTK == 1 ? "Mục 4.4 TT 38/2026: Báo cáo KT-KT điều chỉnh k=1,2; tối thiểu 2.000.000đ" : "Tối thiểu 2.000.000đ";
                     r.QuyMoTy     = qmXDTy;
                     if (DinhMucTT38Database.TiLeThamTraTK.TryGetValue(loaiCT, out var tttkArr))
                     { r.TiLeDinhMuc = tttkArr; r.TyLeNoiSuy = DinhMucChiPhiKhacBTC.NoiSuy(r.MocQuyMo, tttkArr, qmXDTy); }
@@ -934,11 +977,14 @@ namespace AIE.Core.Services
                     r.MocQuyMo    = DinhMucTT38Database.MocQuyMoThamTraTK;
                     r.CoSoTinh    = "G_XD (trước thuế)";
                     decimal kD = kTV;
+                    if (soBuocTK == 1) kD *= 1.2m; // Mục 4.4 TT 38/2026: BCKT-KT k=1,2
                     if (gXDTB > 0 && gTB / gXDTB >= 0.25m) kD *= 1.2m;
                     r.HeSo        = kD;
-                    r.GhiChu      = (gXDTB > 0 && gTB / gXDTB >= 0.25m)
-                        ? "Tối thiểu 2.000.000đ; G_TB ≥ 25% tổng → k=1,2"
-                        : "Tối thiểu 2.000.000đ";
+                    r.GhiChu      = soBuocTK == 1
+                        ? "Mục 4.4 TT 38/2026: Báo cáo KT-KT điều chỉnh k=1,2; tối thiểu 2.000.000đ"
+                        : ((gXDTB > 0 && gTB / gXDTB >= 0.25m)
+                            ? "Tối thiểu 2.000.000đ; G_TB ≥ 25% tổng → k=1,2"
+                            : "Tối thiểu 2.000.000đ");
                     r.QuyMoTy     = qmXDTy;
                     if (DinhMucTT38Database.TiLeThamTraDuToan.TryGetValue(loaiCT, out var tdArr))
                     { r.TiLeDinhMuc = tdArr; r.TyLeNoiSuy = DinhMucChiPhiKhacBTC.NoiSuy(r.MocQuyMo, tdArr, qmXDTy); }

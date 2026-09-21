@@ -1,5 +1,6 @@
 using AIE.Core.Enums;
 using AIE.Core.Models;
+using AIE.ExcelAddIn.Helpers;
 using ExcelDna.Integration;
 using Microsoft.Office.Interop.Excel;
 using System;
@@ -46,36 +47,18 @@ public class DuToanExcelReader
         maxCol = Math.Max(maxCol, Math.Max(cDonGia, cThanhTien));
         maxCol = Math.Max(maxCol, usedRange.Columns.Count + usedRange.Column - 1);
 
-        object[,] rawData = null;
-        try
-        {
-            Range readRange = ws.Range[ws.Cells[1, 1], ws.Cells[maxRow, Math.Max(maxCol, 12)]];
-            rawData = readRange.Value2 as object[,];
-        }
-        catch { }
-
-        int rawRows = rawData != null ? rawData.GetLength(0) : 0;
-        int rawCols = rawData != null ? rawData.GetLength(1) : 0;
+        var reader = new FastRangeReader(ws, 1, 1, maxRow, Math.Max(maxCol, 12));
 
         Func<int, int, string> getFastVal = (r, c) =>
         {
             if (c <= 0) return string.Empty;
-            if (rawData != null && r >= 1 && r <= rawRows && c >= 1 && c <= rawCols)
-            {
-                object v = rawData[r, c];
-                return v?.ToString()?.Trim() ?? string.Empty;
-            }
-            return GetCellValue(ws, r, c);
+            return reader.GetString(r, c);
         };
 
         Func<int, int, decimal> getFastDec = (r, c) =>
         {
             if (c <= 0) return 0m;
-            if (rawData != null && r >= 1 && r <= rawRows && c >= 1 && c <= rawCols)
-            {
-                return ParseCellDecimalValue(rawData[r, c]);
-            }
-            return GetCellDecimal(ws, r, c);
+            return reader.GetDecimal(r, c);
         };
 
         CongTacThamDinh currentCongTac = null;
@@ -359,29 +342,15 @@ public class DuToanExcelReader
                 {
                     Range u = ws.UsedRange;
                     if (u == null) continue;
-                    int rCount = Math.Min(u.Rows.Count, 3000);
-                    int cCount = Math.Min(u.Columns.Count, 25);
+                    int rCount = u.Rows.Count;
+                    int cCount = Math.Min(u.Columns.Count, 30);
                     int startRow = u.Row;
                     int startCol = u.Column;
 
-                    object[,] matrix = null;
-                    try
-                    {
-                        Range readRng = ws.Range[ws.Cells[startRow, startCol], ws.Cells[startRow + rCount - 1, startCol + cCount - 1]];
-                        matrix = readRng.Value2 as object[,];
-                    }
-                    catch { }
+                    var reader = new FastRangeReader(ws, startRow, startCol, startRow + rCount - 1, startCol + cCount - 1);
+                    if (!reader.HasData) continue;
 
-                    Func<int, int, object> getMatVal = (r, c) =>
-                    {
-                        int relR = r - startRow + 1;
-                        int relC = c - startCol + 1;
-                        if (matrix != null && relR >= 1 && relR <= matrix.GetLength(0) && relC >= 1 && relC <= matrix.GetLength(1))
-                        {
-                            return matrix[relR, relC];
-                        }
-                        try { return ws.Cells[r, c].Value2; } catch { return null; }
-                    };
+                    Func<int, int, object> getMatVal = (r, c) => reader.GetValue(r, c);
 
                     int colMa = -1;
                     int colKl = -1;
@@ -423,7 +392,7 @@ public class DuToanExcelReader
                     {
                         int scanStart = headerRow + ((getMatVal(headerRow + 1, colMa)?.ToString()?.Length ?? 0) < 3 ? 2 : 1);
 
-                        for (int r = scanStart; r <= startRow + rCount; r++)
+                        for (int r = scanStart; r <= startRow + rCount - 1; r++)
                         {
                             string ma = getMatVal(r, colMa)?.ToString()?.Trim() ?? "";
                             string ten = colTen != -1 ? (getMatVal(r, colTen)?.ToString()?.Trim() ?? "") : "";
@@ -533,31 +502,11 @@ public class DuToanExcelReader
         int startRow = u.Row;
         int startCol = u.Column;
 
-        object[,] matrix = null;
-        try
-        {
-            Range readRng = ws.Range[ws.Cells[startRow, startCol], ws.Cells[maxRow, maxCol]];
-            matrix = readRng.Value2 as object[,];
-        }
-        catch { }
+        var reader = new FastRangeReader(ws, startRow, startCol, maxRow, maxCol);
+        if (!reader.HasData) return (ws.Name, danhSachHangMuc);
 
-        Func<int, int, object> getMatVal = (r, c) =>
-        {
-            int relR = r - startRow + 1;
-            int relC = c - startCol + 1;
-            if (matrix != null && relR >= 1 && relR <= matrix.GetLength(0) && relC >= 1 && relC <= matrix.GetLength(1))
-            {
-                return matrix[relR, relC];
-            }
-            try { return ws.Cells[r, c].Value2; } catch { return null; }
-        };
-
-        Func<int, int, decimal> getMatDec = (r, c) =>
-        {
-            if (c <= 0) return 0m;
-            object val = getMatVal(r, c);
-            return ParseCellDecimalValue(val);
-        };
+        Func<int, int, object> getMatVal = (r, c) => reader.GetValue(r, c);
+        Func<int, int, decimal> getMatDec = (r, c) => (c <= 0) ? 0m : reader.GetDecimal(r, c);
 
         // Quét tìm dòng tiêu đề
         int headerRow = -1;

@@ -78,13 +78,16 @@ public class LapDuToanExcelService
         catch { }
 
         Range usedRange = ws.UsedRange;
-        int maxRow = usedRange.Rows.Count + usedRange.Row - 1;
-        
-        // Tìm dòng bắt đầu dữ liệu bằng cách tìm ô 'STT' ở các dòng đầu
+        int maxRow = usedRange != null ? (usedRange.Rows.Count + usedRange.Row - 1) : 50;
+        int colCount = Math.Max(12, usedRange != null ? usedRange.Columns.Count : 12);
+
+        var reader = new FastRangeReader(ws, 1, 1, maxRow, colCount);
+
+        // Tìm dòng bắt đầu dữ liệu bằng cách tìm ô 'STT' ở các dòng đầu trong RAM
         int startRow = 6;
-        for (int r = 1; r <= 10; r++)
+        for (int r = 1; r <= Math.Min(10, maxRow); r++)
         {
-            if (GetCellValue(ws, r, 1) == "STT")
+            if (reader.GetString(r, 1).Equals("STT", StringComparison.OrdinalIgnoreCase))
             {
                 startRow = r + 2;
                 break;
@@ -96,55 +99,16 @@ public class LapDuToanExcelService
         int currentHMIndex = 0;
         int currentHMCIndex = 0;
 
-        int colCount = Math.Max(12, usedRange.Columns.Count);
-        object[,] rawData = null;
-        try
-        {
-            Range readRange = ws.Range[ws.Cells[1, 1], ws.Cells[maxRow, colCount]];
-            rawData = readRange.Value2 as object[,];
-        }
-        catch { }
-
-        string GetFastVal(int row, int col)
-        {
-            if (rawData != null && row >= 1 && row <= maxRow && col >= 1 && col <= colCount)
-            {
-                object v = rawData[row, col];
-                return v?.ToString()?.Trim() ?? "";
-            }
-            return GetCellValue(ws, row, col).Trim();
-        }
-
-        decimal GetFastDec(int row, int col)
-        {
-            if (rawData != null && row >= 1 && row <= maxRow && col >= 1 && col <= colCount)
-            {
-                object val = rawData[row, col];
-                if (val == null) return 0m;
-                if (val is double d) return (decimal)d;
-                if (val is decimal m) return m;
-                if (val is int i) return i;
-                if (val is long l) return l;
-                string s = val.ToString().Trim();
-                if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal res))
-                    return res;
-                if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out res))
-                    return res;
-                return 0m;
-            }
-            return GetCellDecimal(ws, row, col);
-        }
-
         for (int r = startRow; r <= maxRow; r++)
         {
-            string sttRaw = GetFastVal(r, 1); // Cột A
-            string maHieu = GetFastVal(r, 2); // Cột B
-            string ten = GetFastVal(r, 3);    // Cột C
-            string donVi = GetFastVal(r, 4);  // Cột D
-            decimal khoiLuong = GetFastDec(r, 5);  // Cột E
-            decimal donGiaVL = GetFastDec(r, 6);   // Cột F
-            decimal donGiaNC = GetFastDec(r, 7);   // Cột G
-            decimal donGiaMay = GetFastDec(r, 8);  // Cột H
+            string sttRaw = reader.GetString(r, 1); // Cột A
+            string maHieu = reader.GetString(r, 2); // Cột B
+            string ten = reader.GetString(r, 3);    // Cột C
+            string donVi = reader.GetString(r, 4);  // Cột D
+            decimal khoiLuong = reader.GetDecimal(r, 5);  // Cột E
+            decimal donGiaVL = reader.GetDecimal(r, 6);   // Cột F
+            decimal donGiaNC = reader.GetDecimal(r, 7);   // Cột G
+            decimal donGiaMay = reader.GetDecimal(r, 8);  // Cột H
 
             // Dòng hoàn toàn rỗng -> bỏ qua
             if (string.IsNullOrWhiteSpace(sttRaw) && 
@@ -285,13 +249,25 @@ public class LapDuToanExcelService
             Range used = ws.UsedRange;
             if (used == null) return;
             int maxRow = used.Rows.Count + used.Row - 1;
+            if (maxRow < 6) return;
 
+            int rowCount = maxRow - 6 + 1;
+            var reader = new FastRangeReader(ws, 6, 1, maxRow, 3);
+            if (!reader.HasData) return;
+
+            object[,] newStt = new object[rowCount, 1];
             int sttCounter = 0;
-            for (int r = 6; r <= maxRow; r++)
+            bool changed = false;
+
+            for (int i = 1; i <= rowCount; i++)
             {
-                string cVal = ws.Cells[r, 3]?.Value2?.ToString()?.Trim() ?? "";
-                string bVal = ws.Cells[r, 2]?.Value2?.ToString()?.Trim() ?? "";
-                string aVal = ws.Cells[r, 1]?.Value2?.ToString()?.Trim() ?? "";
+                int r = 5 + i;
+                object aObj = reader.GetValue(r, 1);
+                string aVal = aObj?.ToString()?.Trim() ?? "";
+                string bVal = reader.GetString(r, 2);
+                string cVal = reader.GetString(r, 3);
+
+                newStt[i - 1, 0] = aObj; // Giữ nguyên mặc định
 
                 if (cVal.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || 
                     cVal.Equals("CỘNG", StringComparison.OrdinalIgnoreCase))
@@ -309,8 +285,18 @@ public class LapDuToanExcelService
                 if (!string.IsNullOrEmpty(bVal) || (!string.IsNullOrEmpty(cVal) && int.TryParse(aVal, out _)))
                 {
                     sttCounter++;
-                    ws.Cells[r, 1].Value2 = sttCounter;
+                    if (!aVal.Equals(sttCounter.ToString()))
+                    {
+                        changed = true;
+                    }
+                    newStt[i - 1, 0] = sttCounter;
                 }
+            }
+
+            // Ghi toàn bộ cột STT (Cột A) một lần duy nhất nếu có thay đổi
+            if (changed)
+            {
+                ExcelComHelper.WriteRangeData(ws, 6, 1, newStt);
             }
 
             // Đảm bảo thiết lập trang in A4 ngang chuẩn cho sheet DuToan
@@ -322,6 +308,7 @@ public class LapDuToanExcelService
     /// <summary>
     /// Gán đơn giá và công thức Thành tiền ngược lại các dòng tương ứng trên Excel,
     /// đồng thời đặt công thức tổng trực tiếp trên dòng tiêu đề Hạng mục và Hạng mục con.
+    /// Tối ưu đọc/ghi hàng loạt trong RAM giúp chạy cực nhanh với các bảng dự toán lớn.
     /// </summary>
     public void WriteDonGiaToExcel(DuToan duToan)
     {
@@ -329,56 +316,70 @@ public class LapDuToanExcelService
         var ws = app.ActiveSheet as Worksheet;
         if (ws == null) return;
 
-        int maxR = 5;
+        var allDongs = duToan.DanhSachHangMuc
+            .SelectMany(h => h.DanhSachCongTac.Concat(h.DanhSachHangMucCon?.SelectMany(c => c.DanhSachCongTac) ?? Enumerable.Empty<DongDuToan>()))
+            .Where(d => d.STT >= 6)
+            .ToList();
 
-        Action<DongDuToan> writeCongTac = (dong) =>
+        if (allDongs.Count == 0) return;
+
+        int maxR = allDongs.Max(d => d.STT);
+        int totalRows = maxR - 6 + 1;
+
+        // Đọc 1 lần toàn bộ vùng Đơn giá (Cột F, G, H) từ dòng 6 đến maxR
+        Range dgRange = ws.Range[ws.Cells[6, 6], ws.Cells[maxR, 8]];
+        object[,] curDgFormulas = dgRange.Formula as object[,];
+        object[,] curDgValues = dgRange.Value2 as object[,];
+
+        // Mảng ghi Đơn giá mới (F, G, H) và Mảng ghi Thành tiền (I, J, K)
+        object[,] newDgValues = new object[totalRows, 3];
+        object[,] ttFormulas = new object[totalRows, 3];
+
+        // Khởi tạo từ giá trị hiện tại
+        for (int i = 0; i < totalRows; i++)
         {
-            int r = dong.STT; // Do lúc đọc ta lưu SoDongExcel vào STT
-            if (r < 6) return;
-            if (r > maxR) maxR = r;
+            newDgValues[i, 0] = curDgValues != null ? curDgValues[i + 1, 1] : null;
+            newDgValues[i, 1] = curDgValues != null ? curDgValues[i + 1, 2] : null;
+            newDgValues[i, 2] = curDgValues != null ? curDgValues[i + 1, 3] : null;
+        }
 
-            // Gán Đơn Giá (Cột F, G, H) nếu ô chưa có công thức liên kết
-            string fForm = ws.Cells[r, 6].Formula?.ToString() ?? "";
+        foreach (var dong in allDongs)
+        {
+            int r = dong.STT;
+            int idx = r - 6;
+            if (idx < 0 || idx >= totalRows) continue;
+
+            string fForm = (curDgFormulas != null ? curDgFormulas[idx + 1, 1]?.ToString() : "") ?? "";
             if (!fForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
             {
-                ws.Cells[r, 6].Value2 = dong.DonGiaVL;
+                newDgValues[idx, 0] = dong.DonGiaVL;
             }
-            string gForm = ws.Cells[r, 7].Formula?.ToString() ?? "";
+
+            string gForm = (curDgFormulas != null ? curDgFormulas[idx + 1, 2]?.ToString() : "") ?? "";
             if (!gForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
             {
-                ws.Cells[r, 7].Value2 = dong.DonGiaNC;
+                newDgValues[idx, 1] = dong.DonGiaNC;
             }
-            string hForm = ws.Cells[r, 8].Formula?.ToString() ?? "";
+
+            string hForm = (curDgFormulas != null ? curDgFormulas[idx + 1, 3]?.ToString() : "") ?? "";
             if (!hForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
             {
-                ws.Cells[r, 8].Value2 = dong.DonGiaMay;
+                newDgValues[idx, 2] = dong.DonGiaMay;
             }
 
-            // 3 Cột Thành tiền: Vật liệu (I), Nhân công (J), Máy thi công (K)
-            ws.Cells[r, 9].Formula = $"=ROUND(E{r}*F{r}, 0)";
-            ws.Cells[r, 10].Formula = $"=ROUND(E{r}*G{r}, 0)";
-            ws.Cells[r, 11].Formula = $"=ROUND(E{r}*H{r}, 0)";
-        };
+            ttFormulas[idx, 0] = $"=ROUND(E{r}*F{r}, 0)";
+            ttFormulas[idx, 1] = $"=ROUND(E{r}*G{r}, 0)";
+            ttFormulas[idx, 2] = $"=ROUND(E{r}*H{r}, 0)";
+        }
 
+        // Ghi hàng loạt Đơn giá (F, G, H) trong 1 lệnh COM
+        ExcelComHelper.WriteRangeData(ws, 6, 6, newDgValues);
+        // Ghi hàng loạt Công thức Thành tiền (I, J, K) trong 1 lệnh COM
+        ExcelComHelper.WriteRangeFormulas(ws, 6, 9, ttFormulas);
+
+        // Gán công thức tổng ngay trên dòng tiêu đề Hạng mục con và Hạng mục cha
         foreach (var hm in duToan.DanhSachHangMuc)
         {
-            foreach (var dong in hm.DanhSachCongTac)
-            {
-                writeCongTac(dong);
-            }
-
-            if (hm.DanhSachHangMucCon != null && hm.DanhSachHangMucCon.Count > 0)
-            {
-                foreach (var hmc in hm.DanhSachHangMucCon)
-                {
-                    foreach (var dong in hmc.DanhSachCongTac)
-                    {
-                        writeCongTac(dong);
-                    }
-                }
-            }
-
-            // Gán công thức tổng ngay trên dòng tiêu đề Hạng mục con và Hạng mục cha
             if (hm.DanhSachHangMucCon != null && hm.DanhSachHangMucCon.Count > 0)
             {
                 foreach (var hmc in hm.DanhSachHangMucCon)
@@ -414,13 +415,17 @@ public class LapDuToanExcelService
             }
         }
 
-        // Cập nhật dòng TỔNG CỘNG: Quét động theo số dòng thực tế trên Sheet
+        // Cập nhật dòng TỔNG CỘNG: Quét động bằng FastRangeReader
         Range usedRange = ws.UsedRange;
         int lastSheetRow = usedRange != null ? (usedRange.Rows.Count + usedRange.Row - 1) : maxR;
+        int scanStart = Math.Max(6, maxR - 2);
+        int scanEnd = Math.Max(lastSheetRow, maxR + 5);
         int existingTotalRow = -1;
-        for (int r = Math.Max(6, maxR - 2); r <= Math.Max(lastSheetRow, maxR + 5); r++)
+
+        var totalScanReader = new FastRangeReader(ws, scanStart, 3, scanEnd, 3);
+        for (int r = scanStart; r <= scanEnd; r++)
         {
-            string cText = ws.Cells[r, 3]?.Value2?.ToString()?.Trim() ?? "";
+            string cText = totalScanReader.GetString(r, 3);
             if (cText.Equals("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || cText.Equals("CỘNG", StringComparison.OrdinalIgnoreCase))
             {
                 existingTotalRow = r;

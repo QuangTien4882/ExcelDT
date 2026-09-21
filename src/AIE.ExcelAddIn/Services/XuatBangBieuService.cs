@@ -872,25 +872,14 @@ namespace AIE.ExcelAddIn.Services
                     try
                     {
                         int maxRows = Math.Min(100, ws.UsedRange.Rows.Count + ws.UsedRange.Row);
+                        var scanReader = new FastRangeReader(ws, 1, 1, maxRows, 6);
                         for (int r = 1; r <= maxRows; r++)
                         {
-                            object c2 = ws.Cells[r, 2]?.Value2;
-                            if (c2 == null) continue;
-                            string s2 = c2.ToString().Trim().ToUpperInvariant();
+                            string s2 = scanReader.GetString(r, 2).ToUpperInvariant();
+                            if (string.IsNullOrEmpty(s2)) continue;
                             if (s2.Contains("TỔNG MỨC ĐẦU TƯ XÂY DỰNG") || s2.Contains("TỔNG DỰ TOÁN CÔNG TRÌNH"))
                             {
-                                object val = ws.Cells[r, 5]?.Value2;
-                                decimal tongSauThue = 0m;
-                                if (val is double d) tongSauThue = (decimal)d;
-                                else if (val is decimal dec) tongSauThue = dec;
-                                else if (val != null)
-                                {
-                                    if (decimal.TryParse(val.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal pVal) ||
-                                        decimal.TryParse(val.ToString(), System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out pVal))
-                                    {
-                                        tongSauThue = pVal;
-                                    }
-                                }
+                                decimal tongSauThue = scanReader.GetDecimal(r, 5);
 
                                 if (tongSauThue > 0)
                                 {
@@ -1405,10 +1394,11 @@ namespace AIE.ExcelAddIn.Services
                         {
                             lastRow = Math.Max(200, ur.Row + ur.Rows.Count);
                         }
+                        var reader = new FastRangeReader(sh, 6, 2, lastRow, 3);
                         for (int rowScan = 6; rowScan <= lastRow; rowScan++)
                         {
-                            string kyHieu = sh.Cells[rowScan, 3]?.Value2?.ToString()?.Trim() ?? "";
-                            string noiDung = sh.Cells[rowScan, 2]?.Value2?.ToString()?.Trim() ?? "";
+                            string noiDung = reader.GetString(rowScan, 2);
+                            string kyHieu = reader.GetString(rowScan, 3);
                             if (kyHieu == "GXDTT" || noiDung.StartsWith("Chi phí xây dựng trước thuế", StringComparison.OrdinalIgnoreCase))
                             {
                                 gxdttRow = rowScan;
@@ -1894,10 +1884,11 @@ namespace AIE.ExcelAddIn.Services
                         {
                             lastRow = Math.Max(200, ur.Row + ur.Rows.Count);
                         }
+                        var reader = new FastRangeReader(sh, 6, 2, lastRow, 3);
                         for (int rowScan = 6; rowScan <= lastRow; rowScan++)
                         {
-                            string kyHieu = sh.Cells[rowScan, 3]?.Value2?.ToString()?.Trim() ?? "";
-                            string noiDung = sh.Cells[rowScan, 2]?.Value2?.ToString()?.Trim() ?? "";
+                            string noiDung = reader.GetString(rowScan, 2);
+                            string kyHieu = reader.GetString(rowScan, 3);
                             if (kyHieu == "GXDTT" || noiDung.StartsWith("Chi phí xây dựng trước thuế", StringComparison.OrdinalIgnoreCase))
                             {
                                 gxdttRow = rowScan;

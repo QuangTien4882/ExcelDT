@@ -326,5 +326,64 @@ namespace AIE.Core.Tests
             Assert.True(tt.QuyMoTy > 0);
             Assert.True(tt.TyLeNoiSuy > 0);
         }
+
+        [Fact]
+        public void Test_BaoCaoKTKT_1Buoc_KhongTich_TVTK_KTDTK_KTDDT()
+        {
+            var model = DinhMucTT38Engine.TaoBangKinhPhiMacDinh(
+                loaiCT: "Dân dụng",
+                capCT: "Cấp III",
+                soBuocTK: 1,
+                chiPhiXD: 5_000_000_000m,
+                chiPhiTB: 0m,
+                chiPhiBT: 0m
+            );
+
+            var itemTK = model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TK");
+            var itemTDTK = model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_TK");
+            var itemTDDT = model.Items.FirstOrDefault(x => x.MaChiPhi == "K_TD_DT");
+
+            Assert.NotNull(itemTK);
+            Assert.False(itemTK.IsActive); // Chi phí thiết kế đã nằm trong Chi phí lập BCKT-KT
+
+            Assert.NotNull(itemTDTK);
+            Assert.False(itemTDTK.IsActive); // Phí thẩm định thiết kế đã nằm trong Phí thẩm định BCKT-KT
+
+            Assert.NotNull(itemTDDT);
+            Assert.False(itemTDDT.IsActive); // Phí thẩm định dự toán đã nằm trong Phí thẩm định BCKT-KT
+        }
+
+        [Fact]
+        public void Test_BaoCaoKTKT_1Buoc_ThamTra_HeSo1_2()
+        {
+            var model = DinhMucTT38Engine.TaoBangKinhPhiMacDinh(
+                loaiCT: "Dân dụng",
+                capCT: "Cấp III",
+                soBuocTK: 1,
+                chiPhiXD: 5_000_000_000m,
+                chiPhiTB: 0m,
+                chiPhiBT: 0m
+            );
+
+            var itemTTTK = model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TT_TK");
+            var itemTTDT = model.Items.FirstOrDefault(x => x.MaChiPhi == "TV_TT_DT");
+
+            Assert.NotNull(itemTTTK);
+            Assert.Equal(1.2m, itemTTTK.HeSoDieuChinh); // Mục 4.4 TT 38/2026: k = 1,2
+
+            Assert.NotNull(itemTTDT);
+            Assert.Equal(1.2m, itemTTDT.HeSoDieuChinh); // Mục 4.4 TT 38/2026: k = 1,2
+
+            // Kiểm tra qua TraCuuThongTinChiPhiItem
+            var ttTK = DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "TV_TT_TK");
+            Assert.NotNull(ttTK);
+            Assert.Equal(1.2m, ttTK.HeSo);
+            Assert.Contains("Mục 4.4 TT 38/2026", ttTK.GhiChu);
+
+            var ttDT = DinhMucTT38Engine.TraCuuThongTinChiPhiItem(model, "TV_TT_DT");
+            Assert.NotNull(ttDT);
+            Assert.Equal(1.2m, ttDT.HeSo);
+            Assert.Contains("Mục 4.4 TT 38/2026", ttDT.GhiChu);
+        }
     }
 }
