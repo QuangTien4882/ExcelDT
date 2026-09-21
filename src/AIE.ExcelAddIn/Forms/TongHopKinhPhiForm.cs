@@ -3211,15 +3211,18 @@ namespace AIE.ExcelAddIn.Forms
                     return;
                 }
 
-                var loading = new LoadingForm("Đang xuất các bảng biểu ra Excel...");
-                loading.Show();
+                using var progress = new TienTrinhXuLyForm("Xuất Bảng Biểu Ra Excel");
+                progress.Show();
                 System.Windows.Forms.Application.DoEvents();
 
-                // Thực hiện xuất các bảng đã chọn
-                _xuatService.XuatCacBangTheoTuyChon(wb, _duToan, opts);
+                // Thực hiện xuất các bảng đã chọn kèm cập nhật tiến độ % trực quan
+                _xuatService.XuatCacBangTheoTuyChon(wb, _duToan, opts, (pct, msg) =>
+                {
+                    progress.CapNhatTienTrinh(pct, msg);
+                    System.Windows.Forms.Application.DoEvents();
+                });
 
-                loading.Close();
-                loading.Dispose();
+                progress.Close();
 
                 // Đối chiếu số liệu giữa các sheet sau khi xuất (2.2)
                 var lech = KiemTraDoiChieuBieuMau(wb);

@@ -96,16 +96,55 @@ public class LapDuToanExcelService
         int currentHMIndex = 0;
         int currentHMCIndex = 0;
 
+        int colCount = Math.Max(12, usedRange.Columns.Count);
+        object[,] rawData = null;
+        try
+        {
+            Range readRange = ws.Range[ws.Cells[1, 1], ws.Cells[maxRow, colCount]];
+            rawData = readRange.Value2 as object[,];
+        }
+        catch { }
+
+        string GetFastVal(int row, int col)
+        {
+            if (rawData != null && row >= 1 && row <= maxRow && col >= 1 && col <= colCount)
+            {
+                object v = rawData[row, col];
+                return v?.ToString()?.Trim() ?? "";
+            }
+            return GetCellValue(ws, row, col).Trim();
+        }
+
+        decimal GetFastDec(int row, int col)
+        {
+            if (rawData != null && row >= 1 && row <= maxRow && col >= 1 && col <= colCount)
+            {
+                object val = rawData[row, col];
+                if (val == null) return 0m;
+                if (val is double d) return (decimal)d;
+                if (val is decimal m) return m;
+                if (val is int i) return i;
+                if (val is long l) return l;
+                string s = val.ToString().Trim();
+                if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.InvariantCulture, out decimal res))
+                    return res;
+                if (decimal.TryParse(s, System.Globalization.NumberStyles.Any, System.Globalization.CultureInfo.CurrentCulture, out res))
+                    return res;
+                return 0m;
+            }
+            return GetCellDecimal(ws, row, col);
+        }
+
         for (int r = startRow; r <= maxRow; r++)
         {
-            string sttRaw = GetCellValue(ws, r, 1).Trim(); // Cột A
-            string maHieu = GetCellValue(ws, r, 2).Trim(); // Cột B
-            string ten = GetCellValue(ws, r, 3).Trim();    // Cột C
-            string donVi = GetCellValue(ws, r, 4).Trim();  // Cột D
-            decimal khoiLuong = GetCellDecimal(ws, r, 5);  // Cột E
-            decimal donGiaVL = GetCellDecimal(ws, r, 6);   // Cột F
-            decimal donGiaNC = GetCellDecimal(ws, r, 7);   // Cột G
-            decimal donGiaMay = GetCellDecimal(ws, r, 8);  // Cột H
+            string sttRaw = GetFastVal(r, 1); // Cột A
+            string maHieu = GetFastVal(r, 2); // Cột B
+            string ten = GetFastVal(r, 3);    // Cột C
+            string donVi = GetFastVal(r, 4);  // Cột D
+            decimal khoiLuong = GetFastDec(r, 5);  // Cột E
+            decimal donGiaVL = GetFastDec(r, 6);   // Cột F
+            decimal donGiaNC = GetFastDec(r, 7);   // Cột G
+            decimal donGiaMay = GetFastDec(r, 8);  // Cột H
 
             // Dòng hoàn toàn rỗng -> bỏ qua
             if (string.IsNullOrWhiteSpace(sttRaw) && 
@@ -131,6 +170,12 @@ public class LapDuToanExcelService
 
             if (!isWorkItem && !string.IsNullOrWhiteSpace(ten))
             {
+                // Bỏ qua dòng Diễn giải đo bóc khối lượng hoặc ghi chú (không tạo Hạng mục rác)
+                if (IsDienGiaiKhoiLuong(sttRaw, ten))
+                {
+                    continue;
+                }
+
                 // Dòng Tiêu đề
                 if (IsLevel1Header(sttRaw, ten, currentHM))
                 {
@@ -147,9 +192,9 @@ public class LapDuToanExcelService
                     currentHMC = null;
                     currentHMCIndex = 0;
                 }
-                else
+                else if (IsLevel2Header(sttRaw, ten))
                 {
-                    // Level 2: Hạng mục con
+                    // Level 2: Hạng mục con thực sự
                     if (currentHM == null)
                     {
                         currentHMIndex++;
@@ -173,6 +218,11 @@ public class LapDuToanExcelService
                         TenHangMucCon = ten
                     };
                     currentHM.DanhSachHangMucCon.Add(currentHMC);
+                }
+                else
+                {
+                    // Các dòng text mô tả khác -> bỏ qua không tạo hạng mục con
+                    continue;
                 }
                 continue;
             }
@@ -234,35 +284,52 @@ public class LapDuToanExcelService
         if (ws == null) return;
 
         int maxR = 5;
+
+        Action<DongDuToan> writeCongTac = (dong) =>
+        {
+            int r = dong.STT; // Do lúc đọc ta lưu SoDongExcel vào STT
+            if (r < 6) return;
+            if (r > maxR) maxR = r;
+
+            // Gán Đơn Giá (Cột F, G, H) nếu ô chưa có công thức liên kết
+            string fForm = ws.Cells[r, 6].Formula?.ToString() ?? "";
+            if (!fForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
+            {
+                ws.Cells[r, 6].Value2 = dong.DonGiaVL;
+            }
+            string gForm = ws.Cells[r, 7].Formula?.ToString() ?? "";
+            if (!gForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
+            {
+                ws.Cells[r, 7].Value2 = dong.DonGiaNC;
+            }
+            string hForm = ws.Cells[r, 8].Formula?.ToString() ?? "";
+            if (!hForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
+            {
+                ws.Cells[r, 8].Value2 = dong.DonGiaMay;
+            }
+
+            // 3 Cột Thành tiền: Vật liệu (I), Nhân công (J), Máy thi công (K)
+            ws.Cells[r, 9].Formula = $"=ROUND(E{r}*F{r}, 0)";
+            ws.Cells[r, 10].Formula = $"=ROUND(E{r}*G{r}, 0)";
+            ws.Cells[r, 11].Formula = $"=ROUND(E{r}*H{r}, 0)";
+        };
+
         foreach (var hm in duToan.DanhSachHangMuc)
         {
             foreach (var dong in hm.DanhSachCongTac)
             {
-                int r = dong.STT; // Do lúc đọc ta lưu SoDongExcel vào STT
-                if (r < 6) continue;
-                if (r > maxR) maxR = r;
+                writeCongTac(dong);
+            }
 
-                // Gán Đơn Giá (Cột F, G, H) nếu ô chưa có công thức liên kết
-                string fForm = ws.Cells[r, 6].Formula?.ToString() ?? "";
-                if (!fForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
+            if (hm.DanhSachHangMucCon != null && hm.DanhSachHangMucCon.Count > 0)
+            {
+                foreach (var hmc in hm.DanhSachHangMucCon)
                 {
-                    ws.Cells[r, 6].Value2 = dong.DonGiaVL;
+                    foreach (var dong in hmc.DanhSachCongTac)
+                    {
+                        writeCongTac(dong);
+                    }
                 }
-                string gForm = ws.Cells[r, 7].Formula?.ToString() ?? "";
-                if (!gForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
-                {
-                    ws.Cells[r, 7].Value2 = dong.DonGiaNC;
-                }
-                string hForm = ws.Cells[r, 8].Formula?.ToString() ?? "";
-                if (!hForm.StartsWith("=", StringComparison.OrdinalIgnoreCase))
-                {
-                    ws.Cells[r, 8].Value2 = dong.DonGiaMay;
-                }
-
-                // 3 Cột Thành tiền: Vật liệu (I), Nhân công (J), Máy thi công (K)
-                ws.Cells[r, 9].Formula = $"=ROUND(E{r}*F{r}, 0)";
-                ws.Cells[r, 10].Formula = $"=ROUND(E{r}*G{r}, 0)";
-                ws.Cells[r, 11].Formula = $"=ROUND(E{r}*H{r}, 0)";
             }
 
             // Gán công thức tổng ngay trên dòng tiêu đề Hạng mục con và Hạng mục cha
@@ -301,9 +368,23 @@ public class LapDuToanExcelService
             }
         }
 
-        // Cập nhật dòng TỔNG CỘNG
-        int totalRow = maxR + 1;
+        // Cập nhật dòng TỔNG CỘNG: Quét động theo số dòng thực tế trên Sheet
+        Range usedRange = ws.UsedRange;
+        int lastSheetRow = usedRange != null ? (usedRange.Rows.Count + usedRange.Row - 1) : maxR;
+        int existingTotalRow = -1;
+        for (int r = Math.Max(6, maxR - 2); r <= Math.Max(lastSheetRow, maxR + 5); r++)
+        {
+            string cText = ws.Cells[r, 3]?.Value2?.ToString()?.Trim() ?? "";
+            if (cText.Equals("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || cText.Equals("CỘNG", StringComparison.OrdinalIgnoreCase))
+            {
+                existingTotalRow = r;
+                break;
+            }
+        }
+
+        int totalRow = existingTotalRow > 0 ? existingTotalRow : (maxR + 1);
         ws.Cells[totalRow, 3].Value2 = "TỔNG CỘNG";
+
         var validHms = duToan.DanhSachHangMuc.Where(h => h.RowIndex > 0).ToList();
         if (validHms.Count > 1)
         {
@@ -319,9 +400,38 @@ public class LapDuToanExcelService
         }
         else
         {
-            ws.Cells[totalRow, 9].Formula = $"=SUM(I6:I{maxR})";
-            ws.Cells[totalRow, 10].Formula = $"=SUM(J6:J{maxR})";
-            ws.Cells[totalRow, 11].Formula = $"=SUM(K6:K{maxR})";
+            // Quét động theo số dòng công tác thực tế, tránh cộng trùng các dòng tiêu đề hoặc diễn giải khối lượng
+            var allCtRows = duToan.DanhSachHangMuc
+                .SelectMany(h => h.DanhSachCongTac.Concat(h.DanhSachHangMucCon?.SelectMany(c => c.DanhSachCongTac) ?? Enumerable.Empty<DongDuToan>()))
+                .Where(ct => ct.STT >= 6 && ct.STT <= maxR)
+                .Select(ct => ct.STT)
+                .Distinct()
+                .OrderBy(x => x)
+                .ToList();
+
+            if (allCtRows.Count > 0)
+            {
+                int minRow = allCtRows.Min();
+                int maxRow = allCtRows.Max();
+                if (maxRow - minRow + 1 == allCtRows.Count)
+                {
+                    ws.Cells[totalRow, 9].Formula = $"=SUM(I{minRow}:I{maxRow})";
+                    ws.Cells[totalRow, 10].Formula = $"=SUM(J{minRow}:J{maxRow})";
+                    ws.Cells[totalRow, 11].Formula = $"=SUM(K{minRow}:K{maxRow})";
+                }
+                else
+                {
+                    ws.Cells[totalRow, 9].Formula = $"={string.Join("+", allCtRows.Select(rIdx => $"I{rIdx}"))}";
+                    ws.Cells[totalRow, 10].Formula = $"={string.Join("+", allCtRows.Select(rIdx => $"J{rIdx}"))}";
+                    ws.Cells[totalRow, 11].Formula = $"={string.Join("+", allCtRows.Select(rIdx => $"K{rIdx}"))}";
+                }
+            }
+            else
+            {
+                ws.Cells[totalRow, 9].Formula = $"=SUM(I6:I{maxR})";
+                ws.Cells[totalRow, 10].Formula = $"=SUM(J6:J{maxR})";
+                ws.Cells[totalRow, 11].Formula = $"=SUM(K6:K{maxR})";
+            }
         }
 
         ws.Range[ws.Cells[totalRow, 1], ws.Cells[totalRow, 11]].Font.Bold = true;
@@ -676,6 +786,43 @@ public class LapDuToanExcelService
         {
             return true;
         }
+        return false;
+    }
+
+    public static bool IsDienGiaiKhoiLuong(string stt, string ten)
+    {
+        if (string.IsNullOrWhiteSpace(ten)) return false;
+        string t = ten.Trim();
+        // Bắt đầu bằng gạch đầu dòng, cộng, nhân, ngoặc
+        if (t.StartsWith("-") || t.StartsWith("+") || t.StartsWith("*") || t.StartsWith("/") || t.StartsWith("(")) return true;
+        // Chứa phép nhân kích thước đo bóc: số * số hoặc số x số (VD: 2*1.5*0.8, 1.2 x 2.4)
+        if (System.Text.RegularExpressions.Regex.IsMatch(t, @"\d+[\.,]?\d*\s*[\*xX]\s*\d+[\.,]?\d*")) return true;
+        // Bắt đầu bằng chữ thường khi STT rỗng
+        if (string.IsNullOrWhiteSpace(stt) && char.IsLower(t[0])) return true;
+        return false;
+    }
+
+    public static bool IsLevel2Header(string stt, string ten)
+    {
+        if (IsDienGiaiKhoiLuong(stt, ten)) return false;
+
+        string s = (stt ?? "").Trim().ToLower();
+        string t = (ten ?? "").Trim().ToLower();
+
+        // Có STT dạng 1, 2, A, B, a)...
+        if (!string.IsNullOrEmpty(s) && (int.TryParse(s.TrimEnd('.', ')'), out _) || s.Length <= 4))
+        {
+            return true;
+        }
+
+        // Hoặc tên bắt đầu bằng các từ khóa phân đoạn
+        if (t.StartsWith("phần") || t.StartsWith("gói") || t.StartsWith("khu") || 
+            t.StartsWith("tầng") || t.StartsWith("tuyến") || t.StartsWith("đoạn") ||
+            t.StartsWith("hạng mục"))
+        {
+            return true;
+        }
+
         return false;
     }
 

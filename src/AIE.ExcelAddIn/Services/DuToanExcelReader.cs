@@ -35,21 +35,64 @@ public class DuToanExcelReader
         Range usedRange = ws.UsedRange;
         int maxRow = usedRange.Rows.Count + usedRange.Row - 1;
 
+        int cMa = ColLetterToNumber(config.ColMaHieu);
+        int cTen = ColLetterToNumber(config.ColTenCT);
+        int cDonVi = ColLetterToNumber(config.ColDonVi);
+        int cDinhMuc = ColLetterToNumber(config.ColDinhMuc);
+        int cDonGia = ColLetterToNumber(config.ColDonGia);
+        int cThanhTien = ColLetterToNumber(config.ColThanhTien);
+
+        int maxCol = Math.Max(Math.Max(cMa, cTen), Math.Max(cDonVi, cDinhMuc));
+        maxCol = Math.Max(maxCol, Math.Max(cDonGia, cThanhTien));
+        maxCol = Math.Max(maxCol, usedRange.Columns.Count + usedRange.Column - 1);
+
+        object[,] rawData = null;
+        try
+        {
+            Range readRange = ws.Range[ws.Cells[1, 1], ws.Cells[maxRow, Math.Max(maxCol, 12)]];
+            rawData = readRange.Value2 as object[,];
+        }
+        catch { }
+
+        int rawRows = rawData != null ? rawData.GetLength(0) : 0;
+        int rawCols = rawData != null ? rawData.GetLength(1) : 0;
+
+        Func<int, int, string> getFastVal = (r, c) =>
+        {
+            if (c <= 0) return string.Empty;
+            if (rawData != null && r >= 1 && r <= rawRows && c >= 1 && c <= rawCols)
+            {
+                object v = rawData[r, c];
+                return v?.ToString()?.Trim() ?? string.Empty;
+            }
+            return GetCellValue(ws, r, c);
+        };
+
+        Func<int, int, decimal> getFastDec = (r, c) =>
+        {
+            if (c <= 0) return 0m;
+            if (rawData != null && r >= 1 && r <= rawRows && c >= 1 && c <= rawCols)
+            {
+                return ParseCellDecimalValue(rawData[r, c]);
+            }
+            return GetCellDecimal(ws, r, c);
+        };
+
         CongTacThamDinh currentCongTac = null;
         LoaiHaoPhi currentLoaiHp = LoaiHaoPhi.VL; // Mặc định là VL
 
         while (row <= maxRow)
         {
-            string maHieu = GetCellValue(ws, row, config.ColMaHieu);
-            string ten = GetCellValue(ws, row, config.ColTenCT);
-            string donVi = GetCellValue(ws, row, config.ColDonVi);
-            decimal valDinhMuc = GetCellDecimal(ws, row, config.ColDinhMuc);
-            decimal valDonGia = string.IsNullOrEmpty(config.ColDonGia) ? 0 : GetCellDecimal(ws, row, config.ColDonGia);
-            decimal valThanhTien = string.IsNullOrEmpty(config.ColThanhTien) ? 0 : GetCellDecimal(ws, row, config.ColThanhTien);
+            string maHieu = getFastVal(row, cMa);
+            string ten = getFastVal(row, cTen);
+            string donVi = getFastVal(row, cDonVi);
+            decimal valDinhMuc = getFastDec(row, cDinhMuc);
+            decimal valDonGia = cDonGia <= 0 ? 0 : getFastDec(row, cDonGia);
+            decimal valThanhTien = cThanhTien <= 0 ? 0 : getFastDec(row, cThanhTien);
 
-            string strDinhMucRaw = GetCellValue(ws, row, config.ColDinhMuc);
-            string strDonGiaRaw = string.IsNullOrEmpty(config.ColDonGia) ? "" : GetCellValue(ws, row, config.ColDonGia);
-            string strThanhTienRaw = string.IsNullOrEmpty(config.ColThanhTien) ? "" : GetCellValue(ws, row, config.ColThanhTien);
+            string strDinhMucRaw = getFastVal(row, cDinhMuc);
+            string strDonGiaRaw = cDonGia <= 0 ? "" : getFastVal(row, cDonGia);
+            string strThanhTienRaw = cThanhTien <= 0 ? "" : getFastVal(row, cThanhTien);
 
             // Bỏ qua dòng trống hoàn toàn ở các cột quan trọng
             if (string.IsNullOrEmpty(maHieu) && string.IsNullOrEmpty(ten) && string.IsNullOrEmpty(strDinhMucRaw) && string.IsNullOrEmpty(strDonGiaRaw) && string.IsNullOrEmpty(strThanhTienRaw))
@@ -187,6 +230,20 @@ public class DuToanExcelReader
         }
     }
 
+    private string GetCellValue(Worksheet ws, int row, int col)
+    {
+        if (col <= 0) return string.Empty;
+        try
+        {
+            Range range = ws.Cells[row, col];
+            return range?.Value2?.ToString()?.Trim() ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
     private decimal GetCellDecimal(Worksheet ws, int row, string col)
     {
         if (string.IsNullOrEmpty(col)) return 0;
@@ -307,6 +364,25 @@ public class DuToanExcelReader
                     int startRow = u.Row;
                     int startCol = u.Column;
 
+                    object[,] matrix = null;
+                    try
+                    {
+                        Range readRng = ws.Range[ws.Cells[startRow, startCol], ws.Cells[startRow + rCount - 1, startCol + cCount - 1]];
+                        matrix = readRng.Value2 as object[,];
+                    }
+                    catch { }
+
+                    Func<int, int, object> getMatVal = (r, c) =>
+                    {
+                        int relR = r - startRow + 1;
+                        int relC = c - startCol + 1;
+                        if (matrix != null && relR >= 1 && relR <= matrix.GetLength(0) && relC >= 1 && relC <= matrix.GetLength(1))
+                        {
+                            return matrix[relR, relC];
+                        }
+                        try { return ws.Cells[r, c].Value2; } catch { return null; }
+                    };
+
                     int colMa = -1;
                     int colKl = -1;
                     int colTen = -1;
@@ -317,8 +393,8 @@ public class DuToanExcelReader
                     {
                         for (int c = startCol; c < startCol + cCount; c++)
                         {
-                            string t1 = ws.Cells[r, c].Value2?.ToString() ?? "";
-                            string t2 = (r + 1 <= startRow + rCount) ? (ws.Cells[r + 1, c].Value2?.ToString() ?? "") : "";
+                            string t1 = getMatVal(r, c)?.ToString() ?? "";
+                            string t2 = (r + 1 <= startRow + rCount) ? (getMatVal(r + 1, c)?.ToString() ?? "") : "";
                             string combined = BoDau(t1 + " " + t2);
 
                             if (colMa == -1 && (combined.Contains("ma hieu") || combined.Contains("ma cv") || combined.Contains("ma so") || combined.Contains("ma dm") || combined == "ma" || combined.Contains("sh dm") || combined.Contains("ma dinh muc") || combined.Contains("so hieu")))
@@ -345,16 +421,16 @@ public class DuToanExcelReader
                     // Nếu tìm thấy cột Mã hiệu và cột Khối lượng
                     if (colMa != -1 && colKl != -1 && headerRow != -1)
                     {
-                        int scanStart = headerRow + (ws.Cells[headerRow + 1, colMa].Value2?.ToString()?.Length < 3 ? 2 : 1);
+                        int scanStart = headerRow + ((getMatVal(headerRow + 1, colMa)?.ToString()?.Length ?? 0) < 3 ? 2 : 1);
 
                         for (int r = scanStart; r <= startRow + rCount; r++)
                         {
-                            string ma = ws.Cells[r, colMa].Value2?.ToString()?.Trim() ?? "";
-                            string ten = colTen != -1 ? (ws.Cells[r, colTen].Value2?.ToString()?.Trim() ?? "") : "";
+                            string ma = getMatVal(r, colMa)?.ToString()?.Trim() ?? "";
+                            string ten = colTen != -1 ? (getMatVal(r, colTen)?.ToString()?.Trim() ?? "") : "";
 
                             if (!string.IsNullOrEmpty(ma) && ma.Length >= 2)
                             {
-                                object v = ws.Cells[r, colKl].Value2;
+                                object v = getMatVal(r, colKl);
                                 decimal kl = ParseCellDecimalValue(v);
 
                                 if (kl > 0)
@@ -457,6 +533,32 @@ public class DuToanExcelReader
         int startRow = u.Row;
         int startCol = u.Column;
 
+        object[,] matrix = null;
+        try
+        {
+            Range readRng = ws.Range[ws.Cells[startRow, startCol], ws.Cells[maxRow, maxCol]];
+            matrix = readRng.Value2 as object[,];
+        }
+        catch { }
+
+        Func<int, int, object> getMatVal = (r, c) =>
+        {
+            int relR = r - startRow + 1;
+            int relC = c - startCol + 1;
+            if (matrix != null && relR >= 1 && relR <= matrix.GetLength(0) && relC >= 1 && relC <= matrix.GetLength(1))
+            {
+                return matrix[relR, relC];
+            }
+            try { return ws.Cells[r, c].Value2; } catch { return null; }
+        };
+
+        Func<int, int, decimal> getMatDec = (r, c) =>
+        {
+            if (c <= 0) return 0m;
+            object val = getMatVal(r, c);
+            return ParseCellDecimalValue(val);
+        };
+
         // Quét tìm dòng tiêu đề
         int headerRow = -1;
         int colSTT = -1;
@@ -471,8 +573,8 @@ public class DuToanExcelReader
         {
             for (int c = startCol; c <= maxCol; c++)
             {
-                string t1 = ws.Cells[r, c].Value2?.ToString() ?? "";
-                string t2 = (r + 1 <= maxRow) ? (ws.Cells[r + 1, c].Value2?.ToString() ?? "") : "";
+                string t1 = getMatVal(r, c)?.ToString() ?? "";
+                string t2 = (r + 1 <= maxRow) ? (getMatVal(r + 1, c)?.ToString() ?? "") : "";
                 string combined = BoDau(t1 + " " + t2);
 
                 if (colSTT == -1 && (combined == "stt" || combined.StartsWith("stt ") || combined == "tt"))
@@ -516,8 +618,8 @@ public class DuToanExcelReader
         {
             for (int c = colKL + 1; c <= maxCol; c++)
             {
-                string t1 = ws.Cells[headerRow, c].Value2?.ToString() ?? "";
-                string t2 = (headerRow + 1 <= maxRow) ? (ws.Cells[headerRow + 1, c].Value2?.ToString() ?? "") : "";
+                string t1 = getMatVal(headerRow, c)?.ToString() ?? "";
+                string t2 = (headerRow + 1 <= maxRow) ? (getMatVal(headerRow + 1, c)?.ToString() ?? "") : "";
                 string combined = BoDau(t1 + " " + t2);
 
                 if (colDgVL == -1 && (combined.Contains("don gia vat lieu") || (combined.Contains("vat lieu") && c < colKL + 5))) colDgVL = c;
@@ -539,7 +641,7 @@ public class DuToanExcelReader
 
         int rowStart = (headerRow != -1 ? headerRow + 1 : 6);
         // Kiểm tra nếu dòng rowStart vẫn là dòng sub-header
-        string checkSub = ws.Cells[rowStart, colTen].Value2?.ToString() ?? "";
+        string checkSub = getMatVal(rowStart, colTen)?.ToString() ?? "";
         if (checkSub.Contains("(1)") || checkSub.Contains("(2)") || checkSub.Contains("(3)") || BoDau(checkSub).Contains("ten cong tac"))
         {
             rowStart++;
@@ -551,11 +653,11 @@ public class DuToanExcelReader
 
         for (int r = rowStart; r <= maxRow; r++)
         {
-            string sttRaw = ws.Cells[r, colSTT].Value2?.ToString()?.Trim() ?? "";
-            string maHieu = ws.Cells[r, colMa].Value2?.ToString()?.Trim() ?? "";
-            string ten = ws.Cells[r, colTen].Value2?.ToString()?.Trim() ?? "";
-            string donVi = (colDonVi > 0) ? (ws.Cells[r, colDonVi].Value2?.ToString()?.Trim() ?? "") : "";
-            decimal kl = (colKL > 0) ? GetCellDecimal(ws, r, colKL) : 0m;
+            string sttRaw = getMatVal(r, colSTT)?.ToString()?.Trim() ?? "";
+            string maHieu = getMatVal(r, colMa)?.ToString()?.Trim() ?? "";
+            string ten = getMatVal(r, colTen)?.ToString()?.Trim() ?? "";
+            string donVi = (colDonVi > 0) ? (getMatVal(r, colDonVi)?.ToString()?.Trim() ?? "") : "";
+            decimal kl = (colKL > 0) ? getMatDec(r, colKL) : 0m;
 
             if (string.IsNullOrWhiteSpace(sttRaw) && string.IsNullOrWhiteSpace(maHieu) && string.IsNullOrWhiteSpace(ten))
                 continue;
@@ -612,9 +714,9 @@ public class DuToanExcelReader
                 }
 
                 ctCounter++;
-                decimal dgVL = (colDgVL > 0) ? GetCellDecimal(ws, r, colDgVL) : 0m;
-                decimal dgNC = (colDgNC > 0) ? GetCellDecimal(ws, r, colDgNC) : 0m;
-                decimal dgMay = (colDgMay > 0) ? GetCellDecimal(ws, r, colDgMay) : 0m;
+                decimal dgVL = (colDgVL > 0) ? getMatDec(r, colDgVL) : 0m;
+                decimal dgNC = (colDgNC > 0) ? getMatDec(r, colDgNC) : 0m;
+                decimal dgMay = (colDgMay > 0) ? getMatDec(r, colDgMay) : 0m;
 
                 var dong = new DongDuToan
                 {
@@ -633,5 +735,20 @@ public class DuToanExcelReader
         }
 
         return (ws.Name, danhSachHangMuc);
+    }
+
+    public static int ColLetterToNumber(string letter)
+    {
+        if (string.IsNullOrWhiteSpace(letter)) return 0;
+        int col = 0;
+        letter = letter.Trim().ToUpperInvariant();
+        foreach (char c in letter)
+        {
+            if (c >= 'A' && c <= 'Z')
+            {
+                col = col * 26 + (c - 'A' + 1);
+            }
+        }
+        return col;
     }
 }

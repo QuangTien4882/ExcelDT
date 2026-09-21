@@ -187,4 +187,62 @@ public class CongTacRepository
             throw;
         }
     }
+
+    /// <summary>
+    /// Lưu hàng loạt công tác xây dựng (kèm hao phí) vào DB trong 1 Transaction duy nhất để tối đa hóa hiệu năng.
+    /// </summary>
+    public void InsertRange(IEnumerable<CongTacXayDung> danhSachCongTac)
+    {
+        if (danhSachCongTac == null || !danhSachCongTac.Any()) return;
+
+        using var connection = _context.GetConnection();
+        using var transaction = connection.BeginTransaction();
+
+        try
+        {
+            var sqlCheck = "SELECT Id FROM CongTacXayDung WHERE MaHieu = @MaHieu;";
+            var sqlUpdateCT = "UPDATE CongTacXayDung SET TenCongTac = @TenCongTac, DonVi = @DonVi WHERE Id = @Id;";
+            var sqlDeleteHP = "DELETE FROM HaoPhi WHERE CongTacId = @Id;";
+            var sqlInsertCT = @"
+                INSERT INTO CongTacXayDung (MaHieu, TenCongTac, DonVi) 
+                VALUES (@MaHieu, @TenCongTac, @DonVi);
+                SELECT last_insert_rowid();";
+            var sqlInsertHP = @"
+                INSERT INTO HaoPhi (CongTacId, LoaiHaoPhi, MaHieuHP, TenHaoPhi, DonVi, DinhMuc, HeSo) 
+                VALUES (@CongTacId, @LoaiHaoPhi, @MaHieuHP, @TenHaoPhi, @DonVi, @DinhMuc, @HeSo);";
+
+            foreach (var congTac in danhSachCongTac)
+            {
+                var existingId = connection.ExecuteScalar<int?>(sqlCheck, new { MaHieu = congTac.MaHieu }, transaction);
+                int ctId;
+                if (existingId.HasValue)
+                {
+                    ctId = existingId.Value;
+                    connection.Execute(sqlUpdateCT, new { congTac.TenCongTac, congTac.DonVi, Id = ctId }, transaction);
+                    connection.Execute(sqlDeleteHP, new { Id = ctId }, transaction);
+                }
+                else
+                {
+                    ctId = connection.ExecuteScalar<int>(sqlInsertCT, congTac, transaction);
+                }
+                congTac.Id = ctId;
+
+                if (congTac.DanhSachHaoPhi != null && congTac.DanhSachHaoPhi.Any())
+                {
+                    foreach (var hp in congTac.DanhSachHaoPhi)
+                    {
+                        hp.CongTacId = ctId;
+                        connection.Execute(sqlInsertHP, hp, transaction);
+                    }
+                }
+            }
+
+            transaction.Commit();
+        }
+        catch
+        {
+            transaction.Rollback();
+            throw;
+        }
+    }
 }

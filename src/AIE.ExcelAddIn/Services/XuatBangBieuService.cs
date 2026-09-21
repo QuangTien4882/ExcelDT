@@ -86,7 +86,7 @@ namespace AIE.ExcelAddIn.Services
         /// <summary>
         /// Xuất các bảng biểu theo lựa chọn chi tiết của người dùng.
         /// </summary>
-        public void XuatCacBangTheoTuyChon(Workbook wb, DuToan duToan, LuaChonXuatExcel opts)
+        public void XuatCacBangTheoTuyChon(Workbook wb, DuToan duToan, LuaChonXuatExcel opts, Action<int, string>? onProgress = null)
         {
             if (wb == null) throw new Exception("Không có Workbook nào đang mở.");
             if (opts == null || !opts.CoItNhatMotBangDuocChon()) return;
@@ -108,57 +108,88 @@ namespace AIE.ExcelAddIn.Services
                 }
                 if (wsDuToan == null) wsDuToan = wb.ActiveSheet as Worksheet;
 
+                int totalSteps = 0;
+                if (opts.XuatTongHopNhanCong && duToan.BangTongHop != null) totalSteps++;
+                if (opts.XuatTongHopCaMay && duToan.BangTongHop != null) totalSteps++;
+                if (opts.XuatChietTinhCuocVC) totalSteps++;
+                if (opts.XuatTongHopVatLieu && duToan.BangTongHop != null) totalSteps++;
+                if (opts.XuatDuToanChiTiet && wsDuToan != null) totalSteps++;
+                if (opts.XuatPhanTichDonGia) totalSteps++;
+                if (opts.XuatHeSoDieuChinh) totalSteps++;
+                if (opts.XuatChiPhiXayDung && duToan.ChiPhiXD != null) totalSteps++;
+                if (opts.XuatTongHopDuToan && duToan.BangKinhPhi != null) totalSteps++;
+                if (opts.XuatTongMucDauTu && duToan.BangKinhPhi != null) totalSteps++;
+                totalSteps += 2; // Sắp xếp sheet & tính toán cập nhật
+
+                int currentStep = 0;
+                Action<string> reportProgress = (msg) =>
+                {
+                    currentStep++;
+                    int pct = totalSteps > 0 ? (currentStep * 100 / totalSteps) : 0;
+                    onProgress?.Invoke(Math.Min(100, pct), msg);
+                };
+
                 // Xuất theo thứ tự phụ thuộc công thức
                 if (opts.XuatTongHopNhanCong && duToan.BangTongHop != null)
                 {
+                    reportProgress("Đang xuất Bảng Tổng hợp Nhân công...");
                     XuatBangTongHopNhanCong(wb, duToan);
                 }
                 if (opts.XuatTongHopCaMay && duToan.BangTongHop != null)
                 {
+                    reportProgress("Đang xuất Bảng Tổng hợp Ca máy...");
                     XuatBangTongHopCaMay(wb, duToan);
                 }
                 if (opts.XuatChietTinhCuocVC)
                 {
+                    reportProgress("Đang xuất Bảng Chiết tính Cước vận chuyển...");
                     XuatChietTinhCuocVC(wb, duToan);
                 }
                 if (opts.XuatTongHopVatLieu && duToan.BangTongHop != null)
                 {
+                    reportProgress("Đang xuất Bảng Tổng hợp Vật liệu...");
                     XuatBangTongHopVatLieu(wb, duToan);
                 }
                 if (opts.XuatDuToanChiTiet && wsDuToan != null)
                 {
+                    reportProgress("Đang định dạng lại Header Dự toán...");
                     ReformatDuToanHeader(wsDuToan, duToan);
                 }
                 if (opts.XuatPhanTichDonGia)
                 {
+                    reportProgress("Đang xuất Bảng Phân tích Đơn giá...");
                     XuatPhanTichDonGia(wb, duToan, wsDuToan);
                 }
                 if (opts.XuatHeSoDieuChinh)
                 {
+                    reportProgress("Đang xuất Bảng Hệ số Điều chỉnh...");
                     XuatBangHeSoDieuChinh(wb, duToan);
                 }
                 if (opts.XuatChiPhiXayDung && duToan.ChiPhiXD != null)
                 {
+                    reportProgress("Đang xuất Bảng Tổng hợp Chi phí Xây dựng...");
                     XuatBangTongHopChiPhiXayDung(wb, duToan);
                 }
                 if (opts.XuatTongHopDuToan && duToan.BangKinhPhi != null)
                 {
+                    reportProgress("Đang xuất Bảng Tổng hợp Dự toán Công trình...");
                     XuatBangTongHopDuToanCongTrinh(wb, duToan);
                 }
                 if (opts.XuatTongMucDauTu && duToan.BangKinhPhi != null)
                 {
+                    reportProgress("Đang xuất Bảng Tổng mức Đầu tư...");
                     XuatBangTongMucDauTu(wb, duToan);
                 }
 
-                // Sắp xếp lại thứ tự sheet theo đúng chuẩn
+                reportProgress("Đang sắp xếp lại thứ tự các sheet chuẩn...");
                 SapXepLaiThuTuCacSheet(wb, wsDuToan);
 
-                // Kích hoạt tính toán toàn bộ Workbook để cập nhật các công thức liên kết chéo giữa các sheet (TH_ChiPhiXD -> TH_DuToan / TongMucDauTu)
+                reportProgress("Đang tính toán toàn bộ Workbook và cập nhật số tiền bằng chữ...");
                 app.Calculation = XlCalculation.xlCalculationAutomatic;
                 try { app.Calculate(); } catch { }
-
-                // Sau khi toàn bộ Workbook đã được tính toán đầy đủ giá trị thực tế, cập nhật lại dòng "Bằng chữ"
                 CapNhatDongBangChuSauKhiTinhToan(wb);
+
+                onProgress?.Invoke(100, "Hoàn tất xuất bảng biểu ra Excel!");
             }
             finally
             {
@@ -195,12 +226,19 @@ namespace AIE.ExcelAddIn.Services
                     }
                 }
 
-                // 2. Nếu có sheet TongMucDauTu hoặc TH_DuToan thì đặt trước TH_ChiPhiXD
+                // 2. Sắp xếp thứ tự cấp hồ sơ: TongMucDauTu -> TH_DuToan -> TH_ChiPhiXD -> DuToan
                 Worksheet frontTarget = wsTHChiPhiXD ?? wsDuToan;
                 if (frontTarget != null)
                 {
-                    if (wsTHDT != null) wsTHDT.Move(Before: frontTarget);
-                    if (wsTMDT != null) wsTMDT.Move(Before: frontTarget);
+                    if (wsTHDT != null)
+                    {
+                        wsTHDT.Move(Before: frontTarget);
+                        frontTarget = wsTHDT;
+                    }
+                    if (wsTMDT != null)
+                    {
+                        wsTMDT.Move(Before: frontTarget);
+                    }
                 }
 
                 // 3. Xếp các sheet sau DuToan theo đúng thứ tự:
@@ -2275,6 +2313,43 @@ namespace AIE.ExcelAddIn.Services
             return "(" + string.Join(" + ", parts) + ")";
         }
 
+        private Dictionary<string, List<int>>? _duToanRowIndexCache = null;
+
+        private void BuildDuToanRowIndexCache(Worksheet wsDuToan)
+        {
+            _duToanRowIndexCache = new Dictionary<string, List<int>>(StringComparer.OrdinalIgnoreCase);
+            if (wsDuToan == null) return;
+            try
+            {
+                int maxRow = Math.Min(10000, wsDuToan.UsedRange.Row + wsDuToan.UsedRange.Rows.Count);
+                if (maxRow < 6) return;
+                var range = wsDuToan.Range[wsDuToan.Cells[6, 2], wsDuToan.Cells[maxRow, 3]];
+                object[,] data = range.Value2 as object[,];
+                if (data != null)
+                {
+                    int rowCount = data.GetLength(0);
+                    for (int i = 1; i <= rowCount; i++)
+                    {
+                        int actualRow = 5 + i;
+                        string mh = data[i, 1]?.ToString()?.Trim() ?? "";
+                        string ten = data[i, 2]?.ToString()?.Trim() ?? "";
+                        if (ten.StartsWith("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || ten.Equals("CỘNG", StringComparison.OrdinalIgnoreCase))
+                            break;
+                        if (!string.IsNullOrEmpty(mh))
+                        {
+                            if (!_duToanRowIndexCache.TryGetValue(mh, out var list))
+                            {
+                                list = new List<int>();
+                                _duToanRowIndexCache[mh] = list;
+                            }
+                            list.Add(actualRow);
+                        }
+                    }
+                }
+            }
+            catch { }
+        }
+
         private int FindDuToanRow(Worksheet wsDuToan, DongDuToan ct, HashSet<int> usedRows)
         {
             if (wsDuToan == null || ct == null) return -1;
@@ -2282,30 +2357,24 @@ namespace AIE.ExcelAddIn.Services
             // 1. Kiểm tra ct.STT trước nếu chưa dùng và Mã hiệu khớp
             if (ct.STT >= 6 && !usedRows.Contains(ct.STT))
             {
-                string mh = wsDuToan.Cells[ct.STT, 2]?.Value2?.ToString()?.Trim() ?? "";
-                if (string.Equals(mh, ct.MaHieu, StringComparison.OrdinalIgnoreCase))
+                if (_duToanRowIndexCache != null && _duToanRowIndexCache.TryGetValue(ct.MaHieu, out var list) && list.Contains(ct.STT))
                 {
                     usedRows.Add(ct.STT);
                     return ct.STT;
                 }
             }
 
-            // 2. Quét tuần tự từ dòng 6
-            for (int rScan = 6; rScan <= 10000; rScan++)
+            // 2. Tra cứu siêu tốc từ Index Cache O(1)
+            if (_duToanRowIndexCache != null && _duToanRowIndexCache.TryGetValue(ct.MaHieu, out var rowList))
             {
-                if (usedRows.Contains(rScan)) continue;
-                string ten = wsDuToan.Cells[rScan, 3]?.Value2?.ToString()?.Trim() ?? "";
-                if (ten.Equals("TỔNG CỘNG", StringComparison.OrdinalIgnoreCase) || ten.Equals("CỘNG", StringComparison.OrdinalIgnoreCase))
-                    break;
-                string mh = wsDuToan.Cells[rScan, 2]?.Value2?.ToString()?.Trim() ?? "";
-                if (string.IsNullOrEmpty(mh) && string.IsNullOrEmpty(ten))
-                    break;
-
-                if (string.Equals(mh, ct.MaHieu, StringComparison.OrdinalIgnoreCase))
+                foreach (int r in rowList)
                 {
-                    usedRows.Add(rScan);
-                    ct.STT = rScan;
-                    return rScan;
+                    if (!usedRows.Contains(r))
+                    {
+                        usedRows.Add(r);
+                        ct.STT = r;
+                        return r;
+                    }
                 }
             }
 
@@ -2347,6 +2416,7 @@ namespace AIE.ExcelAddIn.Services
             }
 
             var usedDuToanRows = new HashSet<int>();
+            BuildDuToanRowIndexCache(wsDuToan);
 
             foreach (var hm in duToan.DanhSachHangMuc)
             {

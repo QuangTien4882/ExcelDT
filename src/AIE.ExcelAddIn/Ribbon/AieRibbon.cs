@@ -293,8 +293,9 @@ namespace AIE.ExcelAddIn.Ribbon
                 {
                     var config = form.ResultConfig;
                     
-                    var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang đọc và kiểm tra dự toán...");
-                    loading.Show();
+                    using var progress = new AIE.ExcelAddIn.Forms.TienTrinhXuLyForm("Thẩm Định Dự Toán Chi Tiết");
+                    progress.Show();
+                    progress.CapNhatTienTrinh(10, "Đang đọc dữ liệu công tác từ sheet Excel...");
                     System.Windows.Forms.Application.DoEvents();
 
                     // 1. Đọc dữ liệu công tác từ sheet
@@ -303,11 +304,13 @@ namespace AIE.ExcelAddIn.Ribbon
 
                     if (danhSachCongTac.Count == 0)
                     {
-                        loading.Close();
-                        loading.Dispose();
+                        progress.Close();
                         MessageBox.Show("Không tìm thấy dữ liệu công tác nào. Vui lòng kiểm tra lại cấu hình cột.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
+
+                    progress.CapNhatTienTrinh(40, $"Đã đọc {danhSachCongTac.Count} công tác. Đang thẩm tra theo định mức...");
+                    System.Windows.Forms.Application.DoEvents();
 
                     // 2. Thẩm tra theo Định mức chuẩn và Bộ đơn giá đã chọn (nếu có)
                     var db = new DatabaseManager();
@@ -319,12 +322,16 @@ namespace AIE.ExcelAddIn.Ribbon
                     
                     var ketQua = engine.KiemTra(danhSachCongTac, form.SelectedBoDonGiaId, config.Vung);
 
+                    progress.CapNhatTienTrinh(75, "Đang xuất kết quả thẩm định ra sheet KQ_ThamDinh...");
+                    System.Windows.Forms.Application.DoEvents();
+
                     // 3. Xuất kết quả kiểm tra trực tiếp vào sheet KQ_ThamDinh
                     var writer = new AIE.ExcelAddIn.Services.ThamDinhExcelWriter();
                     writer.ExportResult(config, ketQua, form.SelectedBoDonGiaId);
 
-                    loading.Close();
-                    loading.Dispose();
+                    progress.CapNhatTienTrinh(100, "Hoàn tất thẩm định dự toán!");
+                    System.Windows.Forms.Application.DoEvents();
+                    progress.Close();
 
                     // Lưu trạng thái phiên làm việc cho Xuất Báo cáo
                     _lastThamDinhConfig = config;
@@ -380,8 +387,9 @@ namespace AIE.ExcelAddIn.Ribbon
                 {
                     var config = form.ResultConfig;
                     
-                    var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang đọc dữ liệu dự toán và trích xuất danh mục vật tư...");
-                    loading.Show();
+                    using var progress = new AIE.ExcelAddIn.Forms.TienTrinhXuLyForm("Trích Xuất Đơn Giá Thẩm Định");
+                    progress.Show();
+                    progress.CapNhatTienTrinh(15, "Đang đọc dữ liệu công tác từ sheet Excel...");
                     System.Windows.Forms.Application.DoEvents();
 
                     var reader = new AIE.ExcelAddIn.Services.DuToanExcelReader();
@@ -389,11 +397,13 @@ namespace AIE.ExcelAddIn.Ribbon
 
                     if (danhSachCongTac.Count == 0)
                     {
-                        loading.Close();
-                        loading.Dispose();
+                        progress.Close();
                         MessageBox.Show("Không tìm thấy dữ liệu công tác nào. Vui lòng kiểm tra lại cấu hình cột.", "Thông báo", MessageBoxButtons.OK, MessageBoxIcon.Information);
                         return;
                     }
+
+                    progress.CapNhatTienTrinh(50, $"Đã đọc {danhSachCongTac.Count} công tác. Đang phân tích hao phí định mức...");
+                    System.Windows.Forms.Application.DoEvents();
 
                     var db = new DatabaseManager();
                     var repo = new AIE.Data.Repositories.CongTacRepository(db.Context);
@@ -403,10 +413,15 @@ namespace AIE.ExcelAddIn.Ribbon
                     var engine = new AIE.ExcelAddIn.Services.ThamDinhEngine(repo, vlRepo, ncRepo, mayRepo);
                     
                     var ketQua = engine.KiemTra(danhSachCongTac, form.SelectedBoDonGiaId, config.Vung);
+
+                    progress.CapNhatTienTrinh(80, "Đang tổng hợp danh mục vật tư VL, NC, Máy...");
+                    System.Windows.Forms.Application.DoEvents();
+
                     var danhSachVatTu = engine.TrichXuatVatTu(ketQua);
 
-                    loading.Close();
-                    loading.Dispose();
+                    progress.CapNhatTienTrinh(100, "Mở bảng thẩm định giá...");
+                    System.Windows.Forms.Application.DoEvents();
+                    progress.Close();
 
                     _lastThamDinhConfig = config;
                     _lastBoDonGiaId = form.SelectedBoDonGiaId;
@@ -457,8 +472,9 @@ namespace AIE.ExcelAddIn.Ribbon
                         var selectedBo = repo.GetAll().FirstOrDefault(x => x.Id == boId);
                         AIE.Core.Enums.Vung vung = AIE.Core.Enums.Vung.VungII;
 
-                        var loading = new LoadingForm("Đang tải dữ liệu bộ đơn giá...");
-                        loading.Show();
+                        using var progress = new AIE.ExcelAddIn.Forms.TienTrinhXuLyForm("Mở Bộ Đơn Giá Thẩm Định");
+                        progress.Show();
+                        progress.CapNhatTienTrinh(30, "Đang tải dữ liệu bộ đơn giá từ CSDL...");
                         System.Windows.Forms.Application.DoEvents();
 
                         // Sử dụng hàm nạp trực tiếp từ Database với đầy đủ giá gốc, cước VC, bốc xếp, ca máy
@@ -470,8 +486,9 @@ namespace AIE.ExcelAddIn.Ribbon
                             donGiaForm.SetTenBoDonGia(selectedBo.TenBo, selectedBo.GiaXang, selectedBo.GiaDiezel, selectedBo.GiaDien);
                         }
 
-                        loading.Close();
-                        loading.Dispose();
+                        progress.CapNhatTienTrinh(100, "Hoàn tất nạp bộ đơn giá!");
+                        System.Windows.Forms.Application.DoEvents();
+                        progress.Close();
 
                         donGiaForm.FormClosed += (s, ev) =>
                         {
@@ -504,15 +521,17 @@ namespace AIE.ExcelAddIn.Ribbon
                 var mayRepo = new AIE.Data.Repositories.MayThiCongRepository(db.Context);
                 var mayDmRepo = new AIE.Data.Repositories.DinhMucCaMayRepository(db.Context);
 
-                var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang mở Quản lý đơn giá...");
-                loading.Show();
+                using var progress = new AIE.ExcelAddIn.Forms.TienTrinhXuLyForm("Quản Lý Đơn Giá");
+                progress.Show();
+                progress.CapNhatTienTrinh(40, "Đang nạp dữ liệu đơn giá VL, NC, Ca máy...");
                 System.Windows.Forms.Application.DoEvents();
 
                 var form = new AIE.ExcelAddIn.Forms.QuanLyDonGiaForm(vlRepo, ncRepo, mayRepo, mayDmRepo);
                 Cursor.Current = Cursors.Default;
                 
-                loading.Close();
-                loading.Dispose();
+                progress.CapNhatTienTrinh(100, "Mở Quản lý đơn giá...");
+                System.Windows.Forms.Application.DoEvents();
+                progress.Close();
                 
                 form.ShowDialog();
             }
@@ -1187,14 +1206,14 @@ namespace AIE.ExcelAddIn.Ribbon
                 // Lưu vào bộ nhớ chung để có thể Save ra file .dt
                 CurrentDuToan = duToan;
 
-                var loading = new AIE.ExcelAddIn.Forms.LoadingForm("Đang mở Giá VL, NC, MTC...");
-                loading.Show();
+                using var progress = new AIE.ExcelAddIn.Forms.TienTrinhXuLyForm("Giá Hiện Trường VL, NC, MTC");
+                progress.Show();
+                progress.CapNhatTienTrinh(50, "Đang khởi tạo bảng tính Giá VL, NC, MTC...");
                 System.Windows.Forms.Application.DoEvents();
                 
                 if (_tinhGiaForm != null && !_tinhGiaForm.IsDisposed)
                 {
-                    loading.Close();
-                    loading.Dispose();
+                    progress.Close();
                     _tinhGiaForm.Activate();
                     return;
                 }
@@ -1203,8 +1222,9 @@ namespace AIE.ExcelAddIn.Ribbon
                 _tinhGiaForms[currentKey] = form;
                 form.FormClosed += (s, ev) => { _tinhGiaForms.TryRemove(currentKey, out _); };
                 
-                loading.Close();
-                loading.Dispose();
+                progress.CapNhatTienTrinh(100, "Mở bảng giá...");
+                System.Windows.Forms.Application.DoEvents();
+                progress.Close();
                 
                 form.Show();
             }
