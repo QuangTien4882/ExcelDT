@@ -595,6 +595,9 @@ namespace AIE.ExcelAddIn.Services
                     // Cập nhật công thức và định dạng dữ liệu cho sheet DuToan (đa hạng mục chuẩn)
                     CapNhatCongThucVaDinhDangDuToan(ws, duToan);
 
+                    // Thiết lập trang in chuẩn A4 ngang cho sheet DuToan (Fit 1 page wide, căn giữa)
+                    ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$4:$5");
+
                     // Freeze panes at row 5
                     ws.Activate();
                     app.ActiveWindow.FreezePanes = false;
@@ -2581,6 +2584,18 @@ namespace AIE.ExcelAddIn.Services
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"F4:G{r - 1}"]);
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
+            try
+            {
+                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
+                if ((double)((Range)ws.Columns[2]).ColumnWidth < 12) ((Range)ws.Columns[2]).ColumnWidth = 12;
+                if ((double)((Range)ws.Columns[3]).ColumnWidth < 45) ((Range)ws.Columns[3]).ColumnWidth = 45;
+                if ((double)((Range)ws.Columns[4]).ColumnWidth < 8) ((Range)ws.Columns[4]).ColumnWidth = 8;
+                if ((double)((Range)ws.Columns[5]).ColumnWidth < 12) ((Range)ws.Columns[5]).ColumnWidth = 12;
+                if ((double)((Range)ws.Columns[6]).ColumnWidth < 15) ((Range)ws.Columns[6]).ColumnWidth = 15;
+                if ((double)((Range)ws.Columns[7]).ColumnWidth < 16) ((Range)ws.Columns[7]).ColumnWidth = 16;
+                ws.Rows[3].RowHeight = 32;
+            }
+            catch { }
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3044,6 +3059,20 @@ namespace AIE.ExcelAddIn.Services
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"E4:I{r - 1}"]);
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
+            try
+            {
+                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
+                if ((double)((Range)ws.Columns[2]).ColumnWidth < 14) ((Range)ws.Columns[2]).ColumnWidth = 14;
+                if ((double)((Range)ws.Columns[3]).ColumnWidth < 36) ((Range)ws.Columns[3]).ColumnWidth = 36;
+                if ((double)((Range)ws.Columns[4]).ColumnWidth < 8) ((Range)ws.Columns[4]).ColumnWidth = 8;
+                if ((double)((Range)ws.Columns[5]).ColumnWidth < 14) ((Range)ws.Columns[5]).ColumnWidth = 14;
+                if ((double)((Range)ws.Columns[6]).ColumnWidth < 14) ((Range)ws.Columns[6]).ColumnWidth = 14;
+                if ((double)((Range)ws.Columns[7]).ColumnWidth < 14) ((Range)ws.Columns[7]).ColumnWidth = 14;
+                if ((double)((Range)ws.Columns[8]).ColumnWidth < 14) ((Range)ws.Columns[8]).ColumnWidth = 14;
+                if ((double)((Range)ws.Columns[9]).ColumnWidth < 16) ((Range)ws.Columns[9]).ColumnWidth = 16;
+                ws.Rows[3].RowHeight = 32;
+            }
+            catch { }
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3083,6 +3112,16 @@ namespace AIE.ExcelAddIn.Services
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"E4:E{r - 1}"]);
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
+            try
+            {
+                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
+                if ((double)((Range)ws.Columns[2]).ColumnWidth < 16) ((Range)ws.Columns[2]).ColumnWidth = 16;
+                if ((double)((Range)ws.Columns[3]).ColumnWidth < 48) ((Range)ws.Columns[3]).ColumnWidth = 48;
+                if ((double)((Range)ws.Columns[4]).ColumnWidth < 10) ((Range)ws.Columns[4]).ColumnWidth = 10;
+                if ((double)((Range)ws.Columns[5]).ColumnWidth < 20) ((Range)ws.Columns[5]).ColumnWidth = 20;
+                ws.Rows[3].RowHeight = 32;
+            }
+            catch { }
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3122,6 +3161,16 @@ namespace AIE.ExcelAddIn.Services
             ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"E4:E{r - 1}"]);
             ws.Columns[4].HorizontalAlignment = XlHAlign.xlHAlignCenter;
             ws.Columns.AutoFit();
+            try
+            {
+                if ((double)((Range)ws.Columns[1]).ColumnWidth < 6) ((Range)ws.Columns[1]).ColumnWidth = 6;
+                if ((double)((Range)ws.Columns[2]).ColumnWidth < 16) ((Range)ws.Columns[2]).ColumnWidth = 16;
+                if ((double)((Range)ws.Columns[3]).ColumnWidth < 48) ((Range)ws.Columns[3]).ColumnWidth = 48;
+                if ((double)((Range)ws.Columns[4]).ColumnWidth < 10) ((Range)ws.Columns[4]).ColumnWidth = 10;
+                if ((double)((Range)ws.Columns[5]).ColumnWidth < 20) ((Range)ws.Columns[5]).ColumnWidth = 20;
+                ws.Rows[3].RowHeight = 32;
+            }
+            catch { }
             ApplyFreezePanes(ws, 3);
             ThietLapTrangInA4(ws, XlPageOrientation.xlPortrait, "$3:$3");
         }
@@ -3399,6 +3448,7 @@ namespace AIE.ExcelAddIn.Services
         /// <summary>
         /// Tự động thiết lập trang in A4 chuẩn theo quy định xây dựng:
         /// Khổ A4, căn vừa chiều ngang (Fit to 1 page wide), lề chuẩn, căn giữa và lặp lại dòng tiêu đề khi in nhiều trang.
+        /// Bọc từng thuộc tính trong try-catch riêng để chống lỗi driver máy in mạng/ảo.
         /// </summary>
         public static void ThietLapTrangInA4(Worksheet ws, XlPageOrientation huongTrang = XlPageOrientation.xlPortrait, string dongTieuDeLapLai = "")
         {
@@ -3407,23 +3457,32 @@ namespace AIE.ExcelAddIn.Services
             {
                 var ps = ws.PageSetup;
                 if (ps == null) return;
-                ps.PaperSize = XlPaperSize.xlPaperA4;
-                ps.Orientation = huongTrang;
-                ps.Zoom = false;
-                ps.FitToPagesWide = 1;
-                ps.FitToPagesTall = false;
 
-                // Lề trang chuẩn (đơn vị points): Trái ~2.0cm, Phải ~1.5cm, Trên ~2.0cm, Dưới ~2.0cm
-                ps.LeftMargin = 56.7;
-                ps.RightMargin = 42.5;
-                ps.TopMargin = 56.7;
-                ps.BottomMargin = 56.7;
-                ps.CenterHorizontally = true;
-                ps.RightFooter = "Trang &P / &N";
+                try { ps.Orientation = huongTrang; } catch { }
+                try { ps.PaperSize = XlPaperSize.xlPaperA4; } catch { }
+                try { ps.Zoom = false; } catch { }
+                try { ps.FitToPagesWide = 1; } catch { }
+                try { ps.FitToPagesTall = false; } catch { }
+                try { ps.CenterHorizontally = true; } catch { }
+
+                try
+                {
+                    double leftCm = huongTrang == XlPageOrientation.xlLandscape ? 2.0 : 1.5;
+                    double rightCm = huongTrang == XlPageOrientation.xlLandscape ? 1.5 : 1.0;
+                    ps.LeftMargin = ws.Application.CentimetersToPoints(leftCm);
+                    ps.RightMargin = ws.Application.CentimetersToPoints(rightCm);
+                    ps.TopMargin = ws.Application.CentimetersToPoints(1.5);
+                    ps.BottomMargin = ws.Application.CentimetersToPoints(1.5);
+                    ps.HeaderMargin = ws.Application.CentimetersToPoints(0.8);
+                    ps.FooterMargin = ws.Application.CentimetersToPoints(0.8);
+                }
+                catch { }
+
+                try { ps.RightFooter = "Trang &P / &N"; } catch { }
 
                 if (!string.IsNullOrEmpty(dongTieuDeLapLai))
                 {
-                    ps.PrintTitleRows = dongTieuDeLapLai;
+                    try { ps.PrintTitleRows = dongTieuDeLapLai; } catch { }
                 }
             }
             catch

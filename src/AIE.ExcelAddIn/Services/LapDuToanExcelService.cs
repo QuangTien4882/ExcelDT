@@ -312,6 +312,9 @@ public class LapDuToanExcelService
                     ws.Cells[r, 1].Value2 = sttCounter;
                 }
             }
+
+            // Đảm bảo thiết lập trang in A4 ngang chuẩn cho sheet DuToan
+            XuatBangBieuService.ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$4:$5");
         }
         catch { }
     }
@@ -740,6 +743,9 @@ public class LapDuToanExcelService
                 ExcelFormatHelper.ApplyIntegerFormat(ws.Range[$"F6:K{r - 1}"]);
             }
             
+            // Thiết lập trang in chuẩn A4 ngang cho sheet DuToan (Fit 1 page wide, căn giữa)
+            XuatBangBieuService.ThietLapTrangInA4(ws, XlPageOrientation.xlLandscape, "$4:$5");
+
             // Freeze panes at row 5 (headers are rows 4 & 5)
             ws.Activate();
             app.ActiveWindow.FreezePanes = false;

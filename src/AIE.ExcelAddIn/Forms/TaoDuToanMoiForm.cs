@@ -286,6 +286,9 @@ namespace AIE.ExcelAddIn.Forms
             // Re-apply header horizontal alignment just in case column alignments overrode it
             columns.HorizontalAlignment = Excel.XlHAlign.xlHAlignCenter;
 
+            // Thiết lập trang in chuẩn A4 ngang cho sheet DuToan (Fit 1 page wide, căn giữa)
+            Services.XuatBangBieuService.ThietLapTrangInA4(ws, Excel.XlPageOrientation.xlLandscape, "$4:$5");
+
             // Select the first data cell (row 6, col 2) and freeze panes at row 5
             ws.Cells[6, 2].Select();
             app.ActiveWindow.FreezePanes = false;
